@@ -9,15 +9,24 @@
   </div>
 </div>
 
+{% if categories %}
+<div class="toolbar">
+  <button type="button" class="btn btn-ghost btn-sm" data-column-edit-toggle title="Regola a mano la larghezza delle colonne">
+    <i data-lucide="columns-3" class="icon"></i> Modifica tabella
+  </button>
+</div>
+{% endif %}
+
 <div class="card" style="padding:0 8px 0 0; margin-bottom:22px;">
   {% if categories %}
-  <table class="simple-table responsive-stack" style="table-layout:fixed;">
+  {% set saved_widths = current_user.get_column_widths('categories-list') %}
+  <table class="simple-table responsive-stack" style="table-layout:fixed;" data-resizable-table="categories-list">
     <thead><tr>
-      <th style="width:70px;">Colore</th>
-      <th style="width:25%;">Nome</th>
-      <th style="width:230px;">Icona</th>
-      <th style="width:80px; text-align:right;">Oggetti</th>
-      <th style="width:92px;"></th>
+      <th style="width:{{ saved_widths[0] if saved_widths else 10 }}%;">Colore<span class="col-resize-handle" data-col-index="0"></span></th>
+      <th style="width:{{ saved_widths[1] if saved_widths else 24 }}%;">Nome<span class="col-resize-handle" data-col-index="1"></span></th>
+      <th style="width:{{ saved_widths[2] if saved_widths else 30 }}%;">Icona<span class="col-resize-handle" data-col-index="2"></span></th>
+      <th style="width:{{ saved_widths[3] if saved_widths else 12 }}%;">Oggetti<span class="col-resize-handle" data-col-index="3"></span></th>
+      <th style="width:{{ saved_widths[4] if saved_widths else 24 }}%;"></th>
     </tr></thead>
     <tbody>
       {% for c in categories %}
@@ -38,7 +47,7 @@
                  style="border:1px solid var(--line); border-radius:8px; padding:6px 8px; width:100%; box-sizing:border-box;"
                  title="Nome icona Lucide (lucide.dev)">
         </td>
-        <td style="text-align:right;" data-label="Oggetti">{{ c.items | length }}</td>
+        <td data-label="Oggetti">{{ c.items | length }}</td>
         <td style="text-align:right; white-space:nowrap;">
           <button type="submit" class="btn btn-ghost btn-sm" title="Salva" form="cat-form-{{ c.id }}">
             <i data-lucide="check" class="icon"></i>
@@ -85,4 +94,8 @@
     {{ form.submit(class_="btn btn-primary", style="margin-top:16px;") }}
   </form>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}?v={{ app_version }}"></script>
 {% endblock %}

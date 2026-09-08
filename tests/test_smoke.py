@@ -47,6 +47,28 @@ def _make_second_user(app, username="familiare") -> User:
         return User.query.filter_by(username=username).first()
 
 
+def _ensure_both_luggage_types_active(trip: Trip, owner: User) -> None:
+    """
+    Garantisce una valigia attiva PER TIPOLOGIA (cabina e stiva) per
+    questo utente su questo viaggio — indipendentemente da quali
+    valigie siano marcate "predefinita per nuovo viaggio" (un catalogo
+    di base curato può marcarne una sola, scelta legittima
+    dell'utente, non un bug: vedi CONTEXT.md). Serve ai test che
+    verificano un comportamento su PIÙ valigie insieme.
+    """
+    active_types = {tl.luggage.tipologia for tl in trip.trip_luggages if tl.user_id == owner.id}
+    for tipologia in (LuggageType.CABINA, LuggageType.STIVA):
+        if tipologia in active_types:
+            continue
+        lug = Luggage.query.filter_by(owner_id=owner.id, tipologia=tipologia).first()
+        if lug is None:
+            lug = Luggage(owner_id=owner.id, name=f"Valigia da {tipologia} (test)", tipologia=tipologia)
+            db.session.add(lug)
+            db.session.commit()
+        db.session.add(TripLuggage(trip_id=trip.id, luggage_id=lug.id, user_id=owner.id, sort_order=len(trip.trip_luggages)))
+        db.session.commit()
+
+
 def _make_trip(owner: User, days: int) -> Trip:
     trip = Trip(
         owner_id=owner.id,
@@ -57,6 +79,7 @@ def _make_trip(owner: User, days: int) -> Trip:
     db.session.add(trip)
     db.session.commit()
     ensure_default_trip_luggages(trip, owner)
+    _ensure_both_luggage_types_active(trip, owner)
     return trip
 
 
@@ -64,7 +87,7 @@ def test_admin_created_with_luggage_and_base_catalog(app):
     with app.app_context():
         admin = User.query.first()
         assert admin.is_admin
-        assert Item.query.filter_by(owner_id=admin.id).count() > 30
+        assert Item.query.filter_by(owner_id=admin.id).count() > 10
         luggages = Luggage.query.filter_by(owner_id=admin.id).all()
         assert len(luggages) == 2
         assert {l.tipologia for l in luggages} == {LuggageType.STIVA, LuggageType.CABINA}
@@ -145,6 +168,7 @@ def test_shared_trip_gives_each_collaborator_an_independent_packing_list(app):
         # Entrambi sincronizzano la LORO lista personale sullo stesso viaggio.
         sync_trip_items(trip, admin)
         ensure_default_trip_luggages(trip, second)
+        _ensure_both_luggage_types_active(trip, second)
         sync_trip_items(trip, second)
 
         admin_items = {ti.item_id for ti in trip.trip_items if ti.user_id == admin.id}
@@ -153,8 +177,8 @@ def test_shared_trip_gives_each_collaborator_an_independent_packing_list(app):
         # Le liste sono fatte di Item DIVERSI (ognuno il proprio catalogo):
         # nessuna sovrapposizione possibile per costruzione.
         assert admin_items.isdisjoint(second_items)
-        assert len(admin_items) > 30
-        assert len(second_items) > 30
+        assert len(admin_items) > 10
+        assert len(second_items) > 10
 
         # L'admin spunta "conservato" su un suo oggetto...
         admin_ti = next(ti for ti in trip.trip_items if ti.user_id == admin.id)
@@ -1979,3 +2003,263 @@ def test_public_catalog_moved_to_dedicated_settings_page(app):
     assert resp.status_code == 200
     assert b"data-public-toggle" in resp.data
     assert "Salva il catalogo da esportare".encode() in resp.data
+
+
+def test_column_widths_apply_to_all_category_tables(app):
+    """
+    Bug reale corretto: Catalogo -> Oggetti mostra una tabella per
+    categoria, tutte con la stessa chiave ("catalog-items") — dopo un
+    salvataggio, OGNI tabella (non solo quella su cui si è trascinato)
+    deve mostrare la stessa larghezza, anche senza ricaricare a mano
+    (segnalato: "la modifica dev'essere valida per tutte le categorie
+    e applicata subito").
+    """
+    with app.app_context():
+        admin = User.query.first()
+        cat_a = Category.query.filter_by(owner_id=admin.id).first()
+        cat_b = Category(owner_id=admin.id, name="SecondaCategoriaPerTest", sort_order=999)
+        db.session.add(cat_b)
+        db.session.commit()
+        db.session.add(Item(owner_id=admin.id, name="Oggetto in categoria A", category_id=cat_a.id))
+        db.session.add(Item(owner_id=admin.id, name="Oggetto in categoria B", category_id=cat_b.id))
+        db.session.commit()
+
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+
+    resp = client.post("/api/colonne-larghezza", json={
+        "table": "catalog-items", "widths": [27, 22, 16, 15, 20],
+    })
+    assert resp.get_json()["ok"] is True
+
+    resp2 = client.get("/catalogo/oggetti")
+    body = resp2.data.decode("utf-8")
+    total_tables = body.count('data-resizable-table="catalog-items"')
+    assert total_tables >= 2, "il test richiede almeno 2 categorie con oggetti"
+    matches = body.count("width:27.0%") or body.count("width:27%")
+    assert matches == total_tables, "ogni tabella (una per categoria) deve avere la stessa larghezza salvata"
+
+    # E la logica JS che applica lo stesso risultato dal vivo, senza
+    # ricaricare, deve esistere ed essere agganciata al salvataggio.
+    js = open("app/static/js/dashboard.js", encoding="utf-8").read()
+    idx = js.find("function initColumnResize")
+    section = js[idx:idx + 6500]
+    assert 'data-resizable-table="${tableKey}"' in section
+
+
+def test_column_edit_mode_toggle(app):
+    """
+    Le maniglie di trascinamento sono invisibili per default (il
+    separatore sempre visibile era segnalato come brutto) — compaiono
+    solo dopo aver premuto "Modifica tabella". La modalità resta attiva
+    finché non si preme ESPLICITAMENTE "Fine modifica": un singolo
+    trascinamento salvato NON deve chiuderla da solo (bug reale
+    corretto: prima si usciva in automatico dopo ogni trascinamento,
+    impedendo di regolare più colonne di fila senza riattivarla ogni
+    volta).
+    """
+    css = open("app/static/css/style.css", encoding="utf-8").read()
+    idx = css.find(".col-resize-handle {")
+    block = css[idx:css.find("}", idx)]
+    assert "display: none" in block
+    assert "body.editing-table-columns .col-resize-handle { display: block; }" in css
+
+    js = open("app/static/js/dashboard.js", encoding="utf-8").read()
+    assert "function initColumnEditToggle" in js
+    assert "function exitColumnEditMode" in js
+    # NON deve disattivarsi da sola dentro initColumnResize (finishDrag):
+    # l'unica uscita valida è il clic esplicito sul pulsante toggle.
+    idx2 = js.find("function initColumnResize")
+    end2 = js.find("\nfunction ", idx2 + 10)
+    section = js[idx2:end2 if end2 != -1 else idx2 + 8000]
+    assert "exitColumnEditMode();" not in section
+    # Il pulsante stesso, invece, DEVE poter chiamare l'uscita (clic su "Fine modifica").
+    idx3 = js.find("function initColumnEditToggle")
+    end3 = js.find("\nfunction exitColumnEditMode")
+    toggle_section = js[idx3:end3]
+    assert "exitColumnEditMode();" in toggle_section
+
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+    resp = client.get("/catalogo/oggetti")
+    assert b"data-column-edit-toggle" in resp.data
+    assert "Modifica tabella".encode() in resp.data
+
+
+def test_public_export_includes_item_variants(app):
+    """
+    Risposta alla domanda: spuntare un oggetto come pubblico esporta
+    AUTOMATICAMENTE anche i suoi modelli, se configurati — non serve
+    spuntarli a parte (i modelli non hanno una spunta propria, viaggiano
+    sempre con l'oggetto a cui appartengono).
+    """
+    with app.app_context():
+        from app.importer import export_catalog_as_base
+
+        admin = User.query.first()
+        cat = Category.query.filter_by(owner_id=admin.id, is_public=True).first()
+        if cat is None:
+            cat = Category.query.filter_by(owner_id=admin.id).first()
+            cat.is_public = True
+            db.session.commit()
+        item = Item(owner_id=admin.id, name="Oggetto con modelli da esportare", category_id=cat.id, is_public=True)
+        db.session.add(item)
+        db.session.commit()
+        db.session.add(ItemVariant(item_id=item.id, description="Modello uno", weight_grams=100, owned_qty=2))
+        db.session.add(ItemVariant(item_id=item.id, description="Modello due", weight_grams=150, owned_qty=1))
+        db.session.commit()
+
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            import app.config as config_module
+            original = config_module.DATA_DIR
+            config_module.DATA_DIR = Path(tmp)
+            try:
+                export_catalog_as_base(admin)
+                import json
+                data = json.loads((Path(tmp) / "catalogo_base.json").read_text(encoding="utf-8"))
+            finally:
+                config_module.DATA_DIR = original
+
+        exported_item = next(i for i in data["items"] if i["name"] == "Oggetto con modelli da esportare")
+        variant_names = {v["description"] for v in exported_item["variants"]}
+        assert variant_names == {"Modello uno", "Modello due"}
+
+
+def test_bundled_json_catalog_takes_precedence_over_csv(app, tmp_path, monkeypatch):
+    """
+    Se esiste un app/seed_data/catalogo_base.json (imbustato nel
+    codice, quindi committabile su GitHub — dalla v3.6.7 esiste
+    davvero, è il catalogo curato dell'utente), viene usato al posto
+    del vecchio catalogo_base.csv — è il modo per far sì che
+    un'installazione fatta da zero da un repository personalizzato
+    riceva il catalogo curato, senza bisogno di alcuna conversione. La
+    cartella dati personalizzata (data/catalogo_base.json) ha comunque
+    la precedenza su ENTRAMBI, se esiste.
+    """
+    monkeypatch.setattr("app.config.DATA_DIR", tmp_path)
+
+    with app.app_context():
+        import json
+        from app.importer import import_base_catalog_for_user, BASE_CATALOG_JSON_PATH
+
+        # Sostituisco temporaneamente il contenuto del JSON imbustato
+        # (qualunque esso sia, ora c'è sempre) con UN oggetto
+        # riconoscibile, per verificare che sia DAVVERO questo file ad
+        # avere la precedenza sul CSV — senza perdere il contenuto reale.
+        original_content = None
+        if BASE_CATALOG_JSON_PATH.exists():
+            original_content = BASE_CATALOG_JSON_PATH.read_text(encoding="utf-8")
+        try:
+            BASE_CATALOG_JSON_PATH.write_text(json.dumps({
+                "categories": [{"name": "CategoriaImbustata", "color": "#8C6D46", "icon": "shapes", "sort_order": 0}],
+                "items": [{"name": "OggettoDalJsonImbustato", "category": "CategoriaImbustata", "quantity_rule": "manual"}],
+                "luggage": [],
+            }), encoding="utf-8")
+
+            nuovo = User(username="utentejsonimbustato", full_name="Test", must_change_password=False)
+            nuovo.set_password("password123")
+            db.session.add(nuovo)
+            db.session.commit()
+
+            summary = import_base_catalog_for_user(nuovo)
+            assert summary.items_created > 0
+            imported = Item.query.filter_by(owner_id=nuovo.id, name="OggettoDalJsonImbustato").first()
+            assert imported is not None, "il JSON imbustato doveva avere la precedenza sul CSV originale"
+        finally:
+            if original_content is not None:
+                BASE_CATALOG_JSON_PATH.write_text(original_content, encoding="utf-8")
+            else:
+                BASE_CATALOG_JSON_PATH.unlink(missing_ok=True)
+
+
+def test_bundled_catalog_json_is_the_curated_one(app):
+    """
+    Dalla v3.6.7, app/seed_data/catalogo_base.json esiste DAVVERO (non
+    è più solo un meccanismo pronto ma inutilizzato): contiene il
+    catalogo curato fornito dall'utente (Vestiti, Bagno, Elettronica,
+    Documento, Medicine — coi modelli dei Pantaloni, tra gli altri).
+    """
+    import json
+    from app.importer import BASE_CATALOG_JSON_PATH
+
+    assert BASE_CATALOG_JSON_PATH.exists()
+    data = json.loads(BASE_CATALOG_JSON_PATH.read_text(encoding="utf-8"))
+    category_names = {c["name"] for c in data["categories"]}
+    assert category_names == {"Vestiti", "Bagno", "Elettronica", "Documento", "Medicine"}
+    item_names = {i["name"] for i in data["items"]}
+    assert "Pantaloni" in item_names
+    assert "Calze" in item_names
+    pantaloni = next(i for i in data["items"] if i["name"] == "Pantaloni")
+    assert len(pantaloni["variants"]) == 6
+    luggage_names = {l["name"] for l in data["luggage"]}
+    assert luggage_names == {"Classic Cabin", "Hybrid Check-in"}
+
+
+def test_dashboard_js_loaded_on_luggage_and_categories_pages(app):
+    """
+    Bug reale corretto: il pulsante "Modifica tabella" era stato
+    aggiunto a Valigie e Categorie, ma dashboard.js (dove vive TUTTA la
+    logica del trascinamento) non era incluso in quelle pagine — il
+    pulsante c'era ma nessun ascoltatore di eventi era mai stato
+    agganciato, quindi premerlo non faceva assolutamente nulla
+    (segnalato: "non appaiono i separatori e non posso modificare").
+    """
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+    for url in ["/valigie/", "/catalogo/categorie"]:
+        resp = client.get(url)
+        assert b"js/dashboard.js" in resp.data, f"{url} deve includere dashboard.js perché 'Modifica tabella' funzioni"
+
+
+def test_peso_column_left_aligned_header_and_rows(app):
+    """Sia l'intestazione "Peso" sia i valori nelle righe restano allineati a sinistra come le altre colonne, SENZA alcun trattamento speciale (bug reale corretto tre volte: prima solo l'etichetta, poi anche i valori, poi un padding extra che dava l'illusione di un centraggio)."""
+    css = open("app/static/css/style.css", encoding="utf-8").read()
+    idx = css.find("table.catalog-items-table td:nth-child(5)")
+    block = css[idx:css.find("}", idx)]
+    assert "text-align" not in block  # nessun allineamento esplicito = eredita quello naturale (sinistra)
+    assert "padding-left" not in block  # nessun rientro extra: si comporta ESATTAMENTE come le altre colonne
+
+    html = open("app/templates/catalog/items.html", encoding="utf-8").read()
+    idx2 = html.find('title="Peso"')
+    header_start = html.rfind("<th", 0, idx2)
+    header_tag = html[header_start:html.find(">", header_start)]
+    assert "text-align" not in header_tag
+
+
+def test_categories_oggetti_column_left_aligned(app):
+    """La colonna "Oggetti" nella pagina Categorie è allineata a sinistra come le altre (bug reale corretto)."""
+    html = open("app/templates/catalog/categories.html", encoding="utf-8").read()
+    idx = html.find(">Oggetti<")
+    header_start = html.rfind("<th", 0, idx)
+    header_tag = html[header_start:idx]
+    assert "text-align:right" not in header_tag
+
+    idx2 = html.find('data-label="Oggetti"')
+    row_start = html.rfind("<td", 0, idx2)
+    row_tag = html[row_start:idx2]
+    assert "text-align:right" not in row_tag
+
+
+def test_toolbar_has_bottom_spacing(app):
+    """Spazio adeguato tra un blocco .toolbar (es. il pulsante "Modifica tabella") e ciò che segue (bug reale segnalato: troppo poco spazio)."""
+    css = open("app/static/css/style.css", encoding="utf-8").read()
+    idx = css.find(".toolbar {")
+    block = css[idx:css.find("}", idx)]
+    assert "margin-bottom" in block

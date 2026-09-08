@@ -8,28 +8,28 @@ completa e `CONTEXT.md` per lo stato tecnico dettagliato del progetto.
 
 ---
 
-## v3.6.1 — 8 settembre 2026 — Correzione critica: il trascinamento non salvava mai
+## v3.6.7 — 8 settembre 2026 — Il catalogo di base ora è quello vero
 
-### Corretto: la larghezza delle colonne non si poteva davvero regolare
+### Nuovo: il catalogo curato è imbustato nel codice
 
-**Causa trovata**: il modo in cui misuravo dove si trovava il bordo di
-una colonna non funzionava mai, in nessun browser — ogni tentativo di
-trascinamento calcolava una larghezza vicina allo zero, che veniva
-sempre rifiutata. Non era un problema occasionale: la funzione, così
-com'era, non poteva funzionare in nessun caso. Riscritta da capo con
-un metodo di misurazione affidabile.
+Da questa versione, `app/seed_data/catalogo_base.json` contiene
+davvero il catalogo scelto — 5 categorie, 17 oggetti (inclusi i
+Pantaloni con i loro 6 modelli specifici), e le due valigie reali.
+D'ora in poi, ogni installazione fatta da zero da questo repository
+riceve questo catalogo, non più quello generico originale. Verificato
+avviando un'installazione completamente nuova: categorie, oggetti,
+modelli e valigie sono tutti presenti correttamente.
 
-Anche il bordo da trascinare ora si vede sempre, non solo passandoci
-sopra con il mouse per caso.
+### Corretto: un nuovo utente poteva ritrovarsi con valigie doppie
 
-### Cambiato: catalogo pubblico spostato in una pagina dedicata
-
-Come richiesto: le spunte "pubblico" non compaiono più nelle pagine
-principali del catalogo. Vivono ora solo in una nuova pagina,
-raggiungibile dal menu Impostazioni → "Configura catalogo pubblico"
-(visibile solo agli account amministratore) — un elenco semplice di
-nomi con la sola spunta, senza altre informazioni.
+Le due valigie generiche di partenza venivano create sempre, prima di
+importare il catalogo di base — quando quel catalogo include le
+proprie valigie (come ora), questo produceva quattro valigie invece
+di due. Corretto: le due generiche si creano solo se il catalogo
+importato non ne porta già.
 
 ### Nessuna azione richiesta per aggiornare
 
-Solo interfaccia: nessuna modifica allo schema del database.
+Riguarda solo i NUOVI utenti creati da questo momento in poi (e le
+nuove installazioni fatte da zero); il tuo account esistente e i tuoi
+dati non vengono toccati in alcun modo.

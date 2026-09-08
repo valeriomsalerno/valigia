@@ -5,7 +5,7 @@
 > nuova conversazione: leggilo TUTTO prima di scrivere codice. Contiene le
 > decisioni già prese e il perché, non solo l'elenco delle funzionalità.
 
-**Versione corrente: v3.6.1** (rilasciata 8 settembre 2026). Changelog
+**Versione corrente: v3.6.7** (rilasciata 8 settembre 2026). Changelog
 completo in `CHANGELOG.md`; versioni precedenti in `changelog/`.
 
 ---
@@ -629,7 +629,212 @@ rischio, funzionano identicamente sia nel layout a tabella (desktop)
 sia in quello a schede (`responsive-stack`, mobile) senza bisogno di
 alcun adattamento per il touch.
 
-## 4.31. `<col>` non ha geometria: perché il trascinamento non salvava mai (v3.6.1)
+## 4.37. Il catalogo di base personalizzato diventa reale (v3.6.7)
+
+**`app/seed_data/catalogo_base.json` esiste davvero da questa
+versione**: fino ad ora era solo un meccanismo pronto ma mai usato (il
+terzo livello di seeding aggiunto in v3.6.3, verificato solo con dati
+di prova). Ora contiene il catalogo curato fornito dall'utente —
+5 categorie (Vestiti, Bagno, Elettronica, Documento, Medicine),
+17 oggetti, i Pantaloni con 6 modelli specifici (Jeans azzurri corti,
+Blu scuri, Bianchi, Grigi, Verdi, Blu scuri leggeri), 2 valigie reali
+(Rimowa Classic Cabin e Hybrid Check-in). Verificato dal vivo su
+un'installazione fatta completamente da zero, non solo con i test.
+
+**Bug reale scoperto sistemando i test**: `provision_new_user_defaults`
+creava SEMPRE due valigie generiche ("Valigia da stiva", "Bagaglio a
+mano") PRIMA di importare il catalogo di base — quando quel catalogo
+è un CSV (che non porta valigie), questo va bene; ma quando è un JSON
+che INCLUDE le proprie valigie (come ora), un nuovo utente si
+ritrovava con QUATTRO valigie invece di due: le due generiche più le
+due curate, tutte insieme. **Corretto invertendo l'ordine**: prima
+importa il catalogo (comprese le sue eventuali valigie), POI crea le
+due generiche SOLO se l'importazione non ne ha portata nessuna. Un
+catalogo curato con le proprie valigie non genera più doppioni.
+
+**Perché il catalogo curato ha una sola valigia marcata "predefinita
+per nuovo viaggio" (solo la Cabina, non la Stiva) — e perché va
+bene così**: è una scelta legittima di chi ha esportato il catalogo,
+non un errore da correggere. `ensure_default_trip_luggages` gestisce
+correttamente qualunque numero di valigie predefinite (zero, una,
+molte) senza mai fallire — ma diversi test presumevano SEMPRE
+esattamente due (cabina + stiva) attive di default su ogni nuovo
+viaggio di prova. **Non ho forzato il catalogo a marcarne due per far
+tornare i test**: ho invece corretto l'helper di test
+`_make_trip` (e il caso analogo per un secondo utente collaboratore)
+perché garantisca ENTRAMBI i tipi attivi per i propri scopi, SENZA
+toccare il comportamento reale dell'app né i dati dell'utente. **Lezione:
+quando un cambiamento nei dati di partenza rompe delle assunzioni nei
+test, la domanda giusta è "il test presumeva qualcosa di troppo
+specifico?", non "i dati vanno adattati al test?" — qui la risposta
+corretta era la prima.**
+
+
+**Il pendolo si è fermato al centro, letteralmente**: dopo aver tolto
+`text-align:right` dai valori (v3.6.5), era rimasto un
+`padding-left:20px` pensato per mantenere un po' di respiro dalla
+colonna precedente — ma quel rientro, combinato con una colonna
+relativamente stretta (12%) e valori brevi ("150 g"), dava l'illusione
+visiva di un testo CENTRATO invece che allineato a sinistra in modo
+pulito (bug reale segnalato). **Corretto rimuovendo ogni trattamento
+speciale**: la colonna Peso ora eredita esattamente lo stesso
+comportamento delle altre (nessuna regola dedicata, nessun padding
+extra) — lo spazio adeguato dalla colonna precedente resta comunque
+garantito dalla larghezza allargata (12% invece dell'8% originale),
+senza bisogno di nessun accorgimento aggiuntivo.
+
+**Lezione da un problema risolto tre volte sulla stessa colonna**:
+ogni "piccolo" aggiustamento visivo (allineamento, poi padding) ha
+introdotto un effetto collaterale non previsto — la soluzione più
+semplice (nessuna regola dedicata affatto) era anche la più robusta
+fin dall'inizio. Quando un dettaglio visivo continua a tornare
+indietro dopo più correzioni mirate, vale la pena chiedersi se la
+colonna abbia davvero bisogno di un trattamento SPECIALE, o se il
+problema originale (poco spazio dalla colonna precedente) si risolva
+meglio a monte (qui: allargando la colonna), lasciando l'allineamento
+del tutto invariato rispetto alle altre.
+
+
+**Causa esatta**: `dashboard.js` — dove vive TUTTA la logica del
+trascinamento (`initColumnResize`, `initColumnEditToggle`) — era
+incluso SOLO da `catalog/items.html` (tramite `{% block extra_scripts %}`).
+Quando ho esteso il sistema a Valigie e Categorie (v3.6.4), ho
+aggiunto il markup (pulsante, maniglie, attributi) ma NON l'inclusione
+dello script in quelle due pagine — il pulsante c'era, le maniglie
+erano nel DOM, il CSS era pronto, ma NESSUN ascoltatore di eventi era
+mai stato agganciato a nulla: premere il pulsante non faceva
+letteralmente nulla (bug reale segnalato: "non appaiono i separatori,
+non posso modificare"). Corretto aggiungendo lo stesso
+`<script src=".../dashboard.js">` anche a `luggage/list.html` e
+`catalog/categories.html`. **Lezione: quando si estende una
+funzionalità JS a una pagina nuova, verificare SEMPRE che lo script
+che la contiene sia effettivamente CARICATO in quella pagina — un
+markup e un CSS perfetti restano completamente inerti senza lo script
+che li anima, e questo tipo di errore non produce nessun errore
+visibile in console: semplicemente, non succede nulla.**
+
+**Allineamento Peso: il pendolo è tornato indietro**. Prima
+l'etichetta era finita per errore a destra insieme ai valori (v3.6.3);
+poi ho separato etichetta (sinistra) e valori (destra, v3.6.4); ora,
+su richiesta esplicita, anche i VALORI tornano a sinistra — lo spazio
+da "Valigia predefinita" resta comunque adeguato grazie alla colonna
+allargata (12% invece dell'8% originale) più un padding-left
+aggiuntivo, senza bisogno di cambiare allineamento per ottenerlo.
+
+**Colonna "Oggetti" nelle Categorie**: rimosso `text-align:right`
+inline sia dall'intestazione sia dalla cella dati — era così fin dalla
+prima versione di quella tabella (mai toccata prima d'ora), semplice
+incoerenza mai notata prima.
+
+**Spaziatura `.toolbar`**: aggiunto `margin-bottom:16px` alla classe
+condivisa da tutte le barre-pulsanti dell'app (non solo "Modifica
+tabella") — prima lo spazio SOTTO dipendeva solo da cosa veniva DOPO,
+niente di garantito dalla classe stessa.
+
+
+**Uscita automatica rimossa, come richiesto**: `finishDrag` (dentro
+`initColumnResize`) non chiama più `exitColumnEditMode()` dopo un
+salvataggio riuscito — quella chiamata è rimasta SOLO dentro
+`initColumnEditToggle`, quindi l'unico modo di uscire dalla modalità
+modifica è ora il clic esplicito su "Fine modifica". Permette di
+regolare più colonne di fila senza dover riattivare la modalità ogni
+volta.
+
+**"Peso" — intestazione a sinistra, solo i VALORI a destra**: la
+regola di allineamento era finita per errore anche sull'etichetta
+della colonna (`th:nth-child(5)`), non solo sui dati (`td:nth-child(5)`)
+— separata: ora `td:nth-child(5)` resta allineato a destra (i numeri
+restano ben distinti dalla colonna precedente), `th:nth-child(5)`
+torna ad allinearsi come tutte le altre intestazioni.
+
+**Estensione a Valigie e Categorie — trovato e corretto un problema di
+generalizzazione**: `initColumnResize` assumeva SEMPRE una prima
+colonna "di servizio" non regolabile (nel Catalogo: il trascina-
+riordina, 30px fissi) e tagliava sempre il primo elemento
+(`ths.slice(1)`) prima di salvare — ma Valigie e Categorie NON hanno
+questa colonna fissa: OGNI colonna, dalla prima, è regolabile e va
+salvata. Corretto leggendo un nuovo attributo
+`data-resize-start-index` sulla tabella (default 0, quante colonne
+iniziali NON regolabili saltare prima di quella salvata) invece di
+un valore fisso — il Catalogo dichiara esplicitamente `="1"`, Valigie
+e Categorie usano il default 0. **Lezione: quando si generalizza un
+meccanismo scritto pensando a UN solo caso concreto, verificare sempre
+quali assunzioni erano implicite in quel caso specifico (qui: "la
+prima colonna non conta mai") prima di applicarlo a un secondo caso
+strutturalmente diverso.**
+
+**Pulsante "Modifica tabella" nascosto in modalità icone su mobile**:
+il pulsante porta ora `data-column-style` (lo stesso valore del
+`.table-scroll` a cui appartiene) — sotto i 680px, se lo stile è
+"automatico", una regola CSS lo nasconde (le colonne in quel momento
+mostrano icone, non testo: regolarne la larghezza non avrebbe alcun
+effetto visibile). Le preferenze ESPLICITE ("solo testo") restano
+sempre visibili, a qualunque larghezza.
+
+
+**Il problema che questo risolve**: `export_catalog_as_base` salva
+SEMPRE in `data/catalogo_base.json` — la cartella dati persistente,
+esclusa di proposito da git (`.gitignore`), perché lì vive anche il
+database vero. Questo significa che, prima di questa versione, il
+catalogo curato con le spunte pubbliche non poteva MAI raggiungere
+GitHub: un push "così com'è" avrebbe sempre incluso il vecchio
+`app/seed_data/catalogo_base.csv` originale (quello con "Felpa per il
+viaggio" e simili) come unico paracadute per una nuova installazione,
+indipendentemente da quanto lavoro fosse stato fatto nella pagina
+Catalogo pubblico — perché quel lavoro viveva SOLO nel runtime, mai
+nel codice.
+
+**Soluzione: un terzo livello, imbustato nel codice**. Aggiunto
+`BASE_CATALOG_JSON_PATH = app/seed_data/catalogo_base.json` — se
+presente (cioè se qualcuno lo ha scaricato con "Scarica il file" e
+committato con questo nome esatto), `import_base_catalog_for_user` lo
+usa AL POSTO del vecchio CSV, senza bisogno di alcuna conversione di
+formato (è già esattamente ciò che `export_catalog_as_base` genera).
+**Ordine di precedenza a tre livelli**: (1) `data/catalogo_base.json`
+— personalizzazione LIVE di questa specifica installazione, mai su
+GitHub; (2) `app/seed_data/catalogo_base.json` — se committato,
+diventa il nuovo default per CHIUNQUE clona il repository; (3)
+`app/seed_data/catalogo_base.csv` — l'originale, ultimo paracadute se
+nessuno dei due sopra esiste.
+
+**Verificato dal vivo in modo diretto, non solo con un test**: creato
+un finto `catalogo_base.json` con un oggetto e una valigia
+riconoscibili, avviato un server COMPLETAMENTE da zero (nessun utente
+esistente, la condizione esatta di "primissimo avvio" descritta in
+`_ensure_seed_data`), e confermato che l'admin ricevesse quel
+catalogo — non più quello del CSV originale. File di prova rimosso
+subito dopo, per non lasciarlo nel pacchetto consegnato.
+
+
+**"Modifica dev'essere applicata a tutte le categorie, subito"**: la
+pagina Catalogo → Oggetti mostra UNA `<table>` per categoria, tutte
+con la stessa chiave (`data-resizable-table="catalog-items"`) e quindi
+le stesse larghezze salvate — al RICARICAMENTO della pagina questo era
+già corretto (tutte leggono lo stesso `current_user.get_column_widths`),
+ma SENZA ricaricare, trascinare in UNA tabella lasciava le ALTRE
+invariate a schermo (solo il DOM della tabella toccata veniva
+aggiornato). Corretto propagando lo stesso risultato, dopo un
+salvataggio riuscito, a TUTTE le `<table>` con la stessa chiave
+presenti in pagina (`document.querySelectorAll` per attributo, non
+solo l'elemento su cui si è trascinato).
+
+**Maniglie nascoste per default, visibili solo in "modalità modifica
+tabella"**: un separatore sempre visibile era segnalato come brutto da
+vedere costantemente — ora `display:none` di default,
+`display:block` solo con la classe `editing-table-columns` sul
+`<body>`, attivata dal pulsante "Modifica tabella"
+(`initColumnEditToggle`) e DISATTIVATA IN AUTOMATICO subito dopo un
+salvataggio riuscito (`exitColumnEditMode()`, chiamata dentro
+`finishDrag` di `initColumnResize`) — l'utente non deve mai ricordarsi
+di "uscire" a mano dalla modalità modifica.
+
+**Conferma sui modelli nell'esportazione pubblica** (domanda posta
+direttamente, non un bug): spuntare un oggetto come pubblico esporta
+SEMPRE anche i suoi modelli (`ItemVariant`), se configurati — non
+esiste una spunta separata per i modelli, viaggiano automaticamente
+col loro oggetto (vedi `export_catalog_as_base` in importer.py,
+verificato anche con un test dedicato).
+
 
 **Causa esatta**: la v3.6.0 misurava/scriveva la larghezza sugli
 elementi `<col>` dentro `<colgroup>` — ma un `<col>` non è

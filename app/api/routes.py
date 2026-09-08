@@ -394,7 +394,7 @@ def offline_pages():
 # Chiavi valide per le larghezze di colonna scelte a mano — un elenco
 # esplicito (non qualunque stringa) per evitare che il campo JSON
 # dell'utente si riempia di chiavi arbitrarie nel tempo.
-_COLUMN_WIDTH_TABLES = {"catalog-items": 5}
+_COLUMN_WIDTH_TABLES = {"catalog-items": 5, "luggage-list": 6, "categories-list": 5}
 
 
 @api_bp.route("/colonne-larghezza", methods=["POST"])

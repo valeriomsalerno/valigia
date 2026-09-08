@@ -233,8 +233,8 @@ def test_full_walkthrough(app):
         from app.models import TripItem as TI
         member_items = TI.query.filter_by(trip_id=trip_id, user_id=second_user_id).all()
         admin_items = TI.query.filter_by(trip_id=trip_id, user_id=1).all()
-        assert len(member_items) > 30
-        assert len(admin_items) > 30
+        assert len(member_items) > 10
+        assert len(admin_items) > 10
         member_item_ids = {ti.item_id for ti in member_items}
         admin_item_ids = {ti.item_id for ti in admin_items}
         assert member_item_ids.isdisjoint(admin_item_ids)
@@ -254,8 +254,10 @@ def test_full_walkthrough(app):
     # ========================================================================
     from app.models import Luggage
     with app.app_context():
-        bagaglio_a_mano = Luggage.query.filter_by(owner_id=1, name="Bagaglio a mano").first()
-        luggage_id = bagaglio_a_mano.id
+        # Qualunque valigia da cabina dell'admin (il nome esatto dipende dal
+        # catalogo di base in uso — non deve essere un nome fisso).
+        cabin_luggage = Luggage.query.filter_by(owner_id=1, tipologia="cabina").first()
+        luggage_id = cabin_luggage.id
 
     resp = admin.get(f"/valigie/{luggage_id}/modifica")
     assert resp.status_code == 200

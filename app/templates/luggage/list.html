@@ -12,6 +12,14 @@
   </a>
 </div>
 
+{% if items %}
+<div class="toolbar">
+  <button type="button" class="btn btn-ghost btn-sm" data-column-edit-toggle title="Regola a mano la larghezza delle colonne">
+    <i data-lucide="columns-3" class="icon"></i> Modifica tabella
+  </button>
+</div>
+{% endif %}
+
 {% if not items %}
 <div class="empty-state">
   <i data-lucide="briefcase" class="icon"></i>
@@ -23,9 +31,17 @@
 </div>
 {% else %}
 <div class="card" style="padding:0;">
-  <table class="simple-table responsive-stack">
+  <table class="simple-table luggage-table responsive-stack" data-resizable-table="luggage-list">
+    {% set saved_widths = current_user.get_column_widths('luggage-list') %}
     <thead>
-      <tr><th>Marca</th><th>Nome / modello</th><th>Tipologia</th><th>Peso a vuoto</th><th>Capacità</th><th></th></tr>
+      <tr>
+        <th{% if saved_widths %} style="width:{{ saved_widths[0] }}%;"{% endif %}>Marca<span class="col-resize-handle" data-col-index="0"></span></th>
+        <th{% if saved_widths %} style="width:{{ saved_widths[1] }}%;"{% endif %}>Nome / modello<span class="col-resize-handle" data-col-index="1"></span></th>
+        <th{% if saved_widths %} style="width:{{ saved_widths[2] }}%;"{% endif %}>Tipologia<span class="col-resize-handle" data-col-index="2"></span></th>
+        <th{% if saved_widths %} style="width:{{ saved_widths[3] }}%;"{% endif %}>Peso a vuoto<span class="col-resize-handle" data-col-index="3"></span></th>
+        <th{% if saved_widths %} style="width:{{ saved_widths[4] }}%;"{% endif %}>Capacità<span class="col-resize-handle" data-col-index="4"></span></th>
+        <th{% if saved_widths %} style="width:{{ saved_widths[5] }}%;"{% endif %}></th>
+      </tr>
     </thead>
     <tbody>
       {% for item in items %}
@@ -56,4 +72,8 @@
   </table>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}?v={{ app_version }}"></script>
 {% endblock %}

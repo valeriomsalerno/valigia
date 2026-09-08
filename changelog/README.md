@@ -29,6 +29,12 @@ Quando si rilascia una nuova versione dell'app:
 
 ## Indice delle versioni archiviate
 
+- **[CHANGELOG-3.6.6.md](CHANGELOG-3.6.6.md)** — 8 settembre 2026. Correzione definitiva allineamento colonna Peso.
+- **[CHANGELOG-3.6.5.md](CHANGELOG-3.6.5.md)** — 8 settembre 2026. Correzione critica script mancante su Valigie/Categorie, allineamenti.
+- **[CHANGELOG-3.6.4.md](CHANGELOG-3.6.4.md)** — 8 settembre 2026. Uscita manuale dalla modifica tabella, estensione a valigie e categorie.
+- **[CHANGELOG-3.6.3.md](CHANGELOG-3.6.3.md)** — 8 settembre 2026. Catalogo pubblico committabile su GitHub, terzo livello di seeding.
+- **[CHANGELOG-3.6.2.md](CHANGELOG-3.6.2.md)** — 8 settembre 2026. Modalità modifica tabella, aggiornamento colonne su tutte le categorie.
+- **[CHANGELOG-3.6.1.md](CHANGELOG-3.6.1.md)** — 8 settembre 2026. Correzione critica trascinamento colonne, riorganizzazione catalogo pubblico.
 - **[CHANGELOG-3.6.0.md](CHANGELOG-3.6.0.md)** — 8 settembre 2026. Larghezza colonne salvabile, catalogo pubblico/privato, correzioni pagina oggetto.
 - **[CHANGELOG-3.5.0.md](CHANGELOG-3.5.0.md)** — 8 settembre 2026. Pulsanti di azzeramento per singolo oggetto e per tutto il viaggio.
 - **[CHANGELOG-3.4.3.md](CHANGELOG-3.4.3.md)** — 7 settembre 2026. Correzione salvataggio che non si rifletteva riaprendo la finestra modelli.

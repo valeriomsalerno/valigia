@@ -1,0 +1,297 @@
+{
+  "categories": [
+    {
+      "name": "Vestiti",
+      "color": "#be38f3",
+      "icon": "shirt",
+      "sort_order": 0
+    },
+    {
+      "name": "Bagno",
+      "color": "#3a88fe",
+      "icon": "soap-dispenser-droplet",
+      "sort_order": 1
+    },
+    {
+      "name": "Elettronica",
+      "color": "#77bb41",
+      "icon": "cpu",
+      "sort_order": 3
+    },
+    {
+      "name": "Documento",
+      "color": "#8c6d46",
+      "icon": "id-card",
+      "sort_order": 4
+    },
+    {
+      "name": "Medicine",
+      "color": "#ff4013",
+      "icon": "briefcase-medical",
+      "sort_order": 5
+    }
+  ],
+  "items": [
+    {
+      "name": "Calze",
+      "category": "Vestiti",
+      "quantity_rule": "per_day",
+      "fixed_qty": 1,
+      "per_day_extra": 1,
+      "default_luggage_type": null,
+      "weight_grams": 29.0,
+      "notes": "",
+      "sort_order": 1,
+      "variants": []
+    },
+    {
+      "name": "Ciabatte",
+      "category": "Vestiti",
+      "quantity_rule": "fixed",
+      "fixed_qty": 1,
+      "per_day_extra": 1,
+      "default_luggage_type": "cabina",
+      "weight_grams": null,
+      "notes": "",
+      "sort_order": 3,
+      "variants": []
+    },
+    {
+      "name": "Cravatta",
+      "category": "Vestiti",
+      "quantity_rule": "manual",
+      "fixed_qty": 1,
+      "per_day_extra": 1,
+      "default_luggage_type": null,
+      "weight_grams": null,
+      "notes": "",
+      "sort_order": 6,
+      "variants": []
+    },
+    {
+      "name": "Magliette",
+      "category": "Vestiti",
+      "quantity_rule": "manual",
+      "fixed_qty": 1,
+      "per_day_extra": 1,
+      "default_luggage_type": null,
+      "weight_grams": null,
+      "notes": "",
+      "sort_order": 13,
+      "variants": []
+    },
+    {
+      "name": "Occhiali",
+      "category": "Vestiti",
+      "quantity_rule": "fixed",
+      "fixed_qty": 1,
+      "per_day_extra": 1,
+      "default_luggage_type": "zaino",
+      "weight_grams": null,
+      "notes": "",
+      "sort_order": 14,
+      "variants": []
+    },
+    {
+      "name": "Pantaloni",
+      "category": "Vestiti",
+      "quantity_rule": "manual",
+      "fixed_qty": 1,
+      "per_day_extra": 1,
+      "default_luggage_type": null,
+      "weight_grams": null,
+      "notes": "blu jeans corti azzurri 390, blu scuri 485, bianchi 485, grigi 488, verdi 465, blu scuri leggeri 401",
+      "sort_order": 15,
+      "variants": [
+        {
+          "description": "Jeans azzurri corti",
+          "weight_grams": 390.0,
+          "owned_qty": 1,
+          "sort_order": 0
+        },
+        {
+          "description": "Blu scuri",
+          "weight_grams": 485.0,
+          "owned_qty": 1,
+          "sort_order": 1
+        },
+        {
+          "description": "Bianchi",
+          "weight_grams": 485.0,
+          "owned_qty": 1,
+          "sort_order": 2
+        },
+        {
+          "description": "Grigi",
+          "weight_grams": 488.0,
+          "owned_qty": 1,
+          "sort_order": 3
+        },
+        {
+          "description": "Verdi",
+          "weight_grams": 465.0,
+          "owned_qty": 1,
+          "sort_order": 4
+        },
+        {
+          "description": "Blu scuri leggeri",
+          "weight_grams": 401.0,
+          "owned_qty": 1,
+          "sort_order": 5
+        }
+      ]
+    },
+    {
+      "name": "Dentifricio",
+      "category": "Bagno",
+      "quantity_rule": "fixed",
+      "fixed_qty": 1,
+      "per_day_extra": 1,
+      "default_luggage_type": "cabina",
+      "weight_grams": null,
+      "notes": "",
+      "sort_order": 3,
+      "variants": []
+    },
+    {
+      "name": "AirPods",
+      "category": "Elettronica",
+      "quantity_rule": "manual",
+      "fixed_qty": 1,
+      "per_day_extra": 1,
+      "default_luggage_type": null,
+      "weight_grams": null,
+      "notes": "",
+      "sort_order": 0,
+      "variants": []
+    },
+    {
+      "name": "Apple Watch",
+      "category": "Elettronica",
+      "quantity_rule": "fixed",
+      "fixed_qty": 1,
+      "per_day_extra": 1,
+      "default_luggage_type": null,
+      "weight_grams": null,
+      "notes": "",
+      "sort_order": 1,
+      "variants": []
+    },
+    {
+      "name": "Carta di identità",
+      "category": "Documento",
+      "quantity_rule": "fixed",
+      "fixed_qty": 1,
+      "per_day_extra": 1,
+      "default_luggage_type": null,
+      "weight_grams": null,
+      "notes": "",
+      "sort_order": 3,
+      "variants": []
+    },
+    {
+      "name": "Patente",
+      "category": "Documento",
+      "quantity_rule": "fixed",
+      "fixed_qty": 1,
+      "per_day_extra": 1,
+      "default_luggage_type": null,
+      "weight_grams": null,
+      "notes": "",
+      "sort_order": 5,
+      "variants": []
+    },
+    {
+      "name": "Tessera sanitaria",
+      "category": "Documento",
+      "quantity_rule": "fixed",
+      "fixed_qty": 1,
+      "per_day_extra": 1,
+      "default_luggage_type": null,
+      "weight_grams": null,
+      "notes": "",
+      "sort_order": 6,
+      "variants": []
+    },
+    {
+      "name": "Augmentin",
+      "category": "Medicine",
+      "quantity_rule": "manual",
+      "fixed_qty": 1,
+      "per_day_extra": 1,
+      "default_luggage_type": null,
+      "weight_grams": null,
+      "notes": "",
+      "sort_order": 0,
+      "variants": []
+    },
+    {
+      "name": "Cerotti",
+      "category": "Medicine",
+      "quantity_rule": "manual",
+      "fixed_qty": 1,
+      "per_day_extra": 1,
+      "default_luggage_type": null,
+      "weight_grams": null,
+      "notes": "",
+      "sort_order": 3,
+      "variants": []
+    },
+    {
+      "name": "Crema solare",
+      "category": "Medicine",
+      "quantity_rule": "manual",
+      "fixed_qty": 1,
+      "per_day_extra": 1,
+      "default_luggage_type": null,
+      "weight_grams": null,
+      "notes": "",
+      "sort_order": 4,
+      "variants": []
+    },
+    {
+      "name": "Spray anti-insetti",
+      "category": "Medicine",
+      "quantity_rule": "manual",
+      "fixed_qty": 1,
+      "per_day_extra": 1,
+      "default_luggage_type": null,
+      "weight_grams": null,
+      "notes": "",
+      "sort_order": 8,
+      "variants": []
+    },
+    {
+      "name": "Termometro",
+      "category": "Medicine",
+      "quantity_rule": "manual",
+      "fixed_qty": 1,
+      "per_day_extra": 1,
+      "default_luggage_type": null,
+      "weight_grams": null,
+      "notes": "",
+      "sort_order": 9,
+      "variants": []
+    }
+  ],
+  "luggage": [
+    {
+      "brand": "Rimowa",
+      "name": "Classic Cabin",
+      "tipologia": "cabina",
+      "weight_kg": 4.3,
+      "capacity_liters": 36.0,
+      "notes": "",
+      "is_default_for_new_trip": true
+    },
+    {
+      "brand": "Rimowa",
+      "name": "Hybrid Check-in",
+      "tipologia": "stiva",
+      "weight_kg": 5.9,
+      "capacity_liters": 84.0,
+      "notes": "",
+      "is_default_for_new_trip": false
+    }
+  ]
+}

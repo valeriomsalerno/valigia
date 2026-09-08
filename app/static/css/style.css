@@ -706,6 +706,7 @@ select:focus-visible, textarea:focus-visible {
   align-items: center;
   gap: 10px;
   margin-top: 22px;
+  margin-bottom: 16px;
   padding: 12px 14px;
   background: var(--paper);
   border: 1px solid var(--line);
@@ -1276,21 +1277,28 @@ table.simple-table td:last-child { overflow: visible; white-space: nowrap; }
    più larga) > Regola quantità > Valigia predefinita > Peso > Azioni.
 */
 table.simple-table.catalog-items-table { table-layout: fixed; }
+
+table.simple-table.luggage-table { table-layout: fixed; }
+table.luggage-table th:nth-child(1) { width: 16%; }
+table.luggage-table th:nth-child(2) { width: 26%; }
+table.luggage-table th:nth-child(3) { width: 15%; }
+table.luggage-table th:nth-child(4) { width: 15%; }
+table.luggage-table th:nth-child(5) { width: 14%; }
+table.luggage-table th:nth-child(6) { width: 14%; }
 table.catalog-items-table th:nth-child(1), table.catalog-items-table td:nth-child(1) { width: 30px; }
 table.catalog-items-table th:nth-child(2), table.catalog-items-table td:nth-child(2) { width: 30%; }
 table.catalog-items-table th:nth-child(3), table.catalog-items-table td:nth-child(3) { width: 19%; }
 table.catalog-items-table th:nth-child(4), table.catalog-items-table td:nth-child(4) { width: 15%; }
 table.catalog-items-table th:nth-child(5), table.catalog-items-table td:nth-child(5) { width: 12%; }
 table.catalog-items-table th:nth-child(6), table.catalog-items-table td:nth-child(6) { width: 24%; }
-/* Colonna Peso: numero breve e allineato a destra (come è naturale per
-   i numeri), per staccarlo visivamente dalla colonna "Valigia
-   predefinita" a sinistra invece di restarci incollato — riguarda la
-   vista testo (in vista icone l'allineamento non crea alcun problema
-   di spazio, quindi non serve escluderla: bug reale segnalato). */
-table.catalog-items-table th:nth-child(5), table.catalog-items-table td:nth-child(5) {
-  text-align: right;
-  padding-right: 16px;
-}
+/* Colonna Peso: allineata a sinistra ESATTAMENTE come tutte le altre
+   (intestazione E valori nelle righe), senza alcun trattamento
+   speciale — un padding extra provato in precedenza per "staccarla"
+   dalla colonna "Valigia predefinita" dava paradossalmente l'effetto
+   opposto (il testo sembrava centrato, non più allineato a sinistra
+   in modo pulito: bug reale segnalato). Lo spazio adeguato resta
+   comunque garantito dalla colonna allargata (12% invece dell'8%
+   originale): non serve altro. */
 table.catalog-items-table .drag-handle-cell { cursor: grab; padding-left:6px; padding-right:0; }
 table.catalog-items-table .drag-handle-cell .drag-handle { color: var(--ink-300); }
 table.catalog-items-table .drag-handle-cell .icon { width: 16px; height: 16px; }
@@ -1383,6 +1391,13 @@ table.catalog-items-table td:last-child .icon { width: 14px; height: 14px; }
 @media (max-width: 680px) {
   [data-column-style="auto"] .col-icon { display: inline-flex; align-items: center; }
   [data-column-style="auto"] .col-text { display: none; }
+  /* Il pulsante "Modifica tabella" non ha senso quando lo schermo
+     mostra le icone (in "automatico", su mobile): regolare colonne che
+     in quel momento non sono nemmeno visibili come testo confonderebbe
+     soltanto — compare di nuovo appena lo schermo torna abbastanza
+     largo da mostrare il testo. Le preferenze ESPLICITE ("solo testo")
+     restano sempre visibili, a qualunque larghezza. */
+  [data-column-edit-toggle][data-column-style="auto"] { display: none; }
 }
 /* Le scelte ESPLICITE (non "automatico") devono vincere sempre, a
    qualunque larghezza di schermo — bug reale corretto: prima
@@ -1782,17 +1797,22 @@ body[data-viewing-all-categories="true"] .category-panel-heading { display: flex
 .variant-modal-row .qty-stepper button:disabled { opacity: 0.35; cursor: not-allowed; }
 .variant-modal-footer { padding: 12px 18px 18px; }
 
-/* Maniglia di trascinamento per la larghezza delle colonne (vista testo).
-   Sempre visibile (non solo al passaggio del mouse): un bordo invisibile
-   è un bordo che nessuno trova per trascinarlo (bug reale segnalato).
-   Interamente DENTRO il bordo destro della propria <th> (mai a cavallo
-   tra due colonne, per non creare ambiguità su quale intestazione
-   riceva davvero il clic). */
-.catalog-items-table th { position: relative; }
+/* Maniglia di trascinamento per la larghezza delle colonne (vista
+   testo). Invisibile e inerte per default (un separatore sempre
+   visibile è brutto da vedere, come segnalato) — compare SOLO in
+   "modalità modifica tabella" (pulsante "Modifica tabella", vedi
+   initColumnEditToggle in dashboard.js), attiva finché l'utente non
+   preme ESPLICITAMENTE "Fine modifica" (mai da sola). Interamente
+   DENTRO il bordo destro della propria <th> (mai a cavallo tra due
+   colonne, per non creare ambiguità su quale intestazione riceva
+   davvero il clic). */
+table[data-resizable-table] th { position: relative; }
 .col-resize-handle {
   position: absolute; top: 0; right: 0; bottom: 0; width: 14px;
   cursor: col-resize; touch-action: none; z-index: 5;
+  display: none;
 }
+body.editing-table-columns .col-resize-handle { display: block; }
 .col-resize-handle::after {
   content: ""; position: absolute; top: 6px; bottom: 6px; right: 4px; width: 3px;
   background: var(--line); border-radius: 2px; transition: background 0.15s, width 0.15s;
@@ -1800,6 +1820,7 @@ body[data-viewing-all-categories="true"] .category-panel-heading { display: flex
 .col-resize-handle:hover::after, .col-resize-handle.is-resizing::after {
   background: var(--brass-500); width: 4px;
 }
+[data-column-edit-toggle].is-active { background: var(--brass-100); border-color: var(--brass-400); }
 
 /* Spunta "includi nel catalogo pubblico" — un'icona a forma di globo
    che si accende quando spuntata, discreta finché non serve guardarla. */

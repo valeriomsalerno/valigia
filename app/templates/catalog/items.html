@@ -23,6 +23,14 @@
   </a>
   {% endif %}
 
+  {% if current_user.catalog_column_style != 'icons' %}
+  <button type="button" class="btn btn-ghost btn-sm" data-column-edit-toggle
+          data-column-style="{{ current_user.catalog_column_style }}"
+          title="Regola a mano la larghezza delle colonne">
+    <i data-lucide="columns-3" class="icon"></i> Modifica tabella
+  </button>
+  {% endif %}
+
   <form method="post" action="{{ url_for('catalog.import_base') }}" style="margin-left:auto;">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button type="submit" class="btn btn-ghost btn-sm" title="Aggiunge al tuo catalogo gli oggetti del catalogo di base che non hai ancora">
@@ -65,7 +73,7 @@
     <i data-lucide="{{ group.category.icon }}" class="icon"></i> {{ group.category.name }}
   </div>
   <div class="table-scroll" data-column-style="{{ current_user.catalog_column_style }}">
-  <table class="simple-table catalog-items-table responsive-stack" data-resizable-table="catalog-items">
+  <table class="simple-table catalog-items-table responsive-stack" data-resizable-table="catalog-items" data-resize-start-index="1">
     {% set saved_widths = current_user.get_column_widths('catalog-items') %}
     <thead>
       <tr>

@@ -68,7 +68,7 @@ class Config:
     # container in esecuzione è stato davvero aggiornato all'ultima build
     # (senza dover controllare log o entrare in SSH). Va aggiornata ad
     # ogni release insieme a CHANGELOG.md — vedi CONTEXT.md, sezione 9.
-    APP_VERSION = "3.6.1"
+    APP_VERSION = "3.6.7"
 
 
 class DevelopmentConfig(Config):

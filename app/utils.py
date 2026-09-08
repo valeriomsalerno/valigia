@@ -257,8 +257,17 @@ def ensure_default_trip_luggages(trip: Trip, user: User) -> None:
 # Provisioning di un nuovo utente
 # ---------------------------------------------------------------------------
 def provision_new_user_defaults(user: User) -> None:
-    """Crea le due valigie di partenza e importa il catalogo di base nel catalogo personale del nuovo utente."""
+    """
+    Importa il catalogo di base nel catalogo personale del nuovo
+    utente, poi crea le due valigie generiche di partenza SOLO se il
+    catalogo importato non ne ha già portate (un catalogo JSON
+    personalizzato, a differenza del vecchio CSV, può includere le
+    proprie valigie — due valigie generiche IN PIÙ, oltre a quelle già
+    scelte con cura in un catalogo curato, sarebbero solo doppioni).
+    """
     from app.importer import import_base_catalog_for_user
+
+    import_base_catalog_for_user(user)
 
     if Luggage.query.filter_by(owner_id=user.id).count() == 0:
         db.session.add_all([
@@ -268,8 +277,6 @@ def provision_new_user_defaults(user: User) -> None:
                     is_default_for_new_trip=True),
         ])
         db.session.commit()
-
-    import_base_catalog_for_user(user)
 
 
 # ---------------------------------------------------------------------------

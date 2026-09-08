@@ -8,19 +8,29 @@ Usi:
   1. `import_base_catalog_for_user(user)` — importa il "catalogo di base"
      nel catalogo dell'utente indicato. Chiamata automaticamente alla
      creazione di ogni nuovo utente, ed è anche disponibile come azione
-     manuale ("Importa catalogo di base") dalla pagina Catalogo. Usa il
-     catalogo di base PERSONALIZZATO se un amministratore ne ha esportato
-     uno (vedi sotto), altrimenti quello imbustato con l'app.
-  2. `export_catalog_as_base(owner)` — SOLO admin: promuove il catalogo
-     ATTUALE di `owner` (categorie + oggetti, con tutte le impostazioni:
-     regola quantità, peso, tipologia predefinita) a nuovo "catalogo di
-     base", salvato in un file JSON nella cartella dati persistente
-     (sopravvive quindi agli aggiornamenti dell'app, a differenza del
-     catalogo imbustato nel codice). Da qui in poi, ogni nuovo utente e
-     ogni "Importa catalogo di base" useranno questo al posto
-     dell'originale.
-  3. `reset_base_catalog_to_default()` — rimuove la personalizzazione,
-     tornando al catalogo di base originale imbustato con l'app.
+     manuale ("Importa catalogo di base") dalla pagina Catalogo. Sceglie
+     tra TRE livelli, in ordine: (a) il catalogo PERSONALIZZATO in
+     `data/catalogo_base.json` (esportato da un admin — cartella dati
+     persistente, mai nel codice: specifico di QUESTA installazione,
+     sopravvive agli aggiornamenti ma NON va mai su GitHub); (b) un
+     catalogo JSON IMBUSTATO nel codice, `app/seed_data/catalogo_base.json`
+     — se presente, sostituisce il vecchio CSV: è il modo pensato per far
+     sì che chi clona il repository riceva il catalogo curato invece di
+     quello generico originale, semplicemente committando il file
+     scaricato da "Scarica il file" con questo nome esatto; (c) il CSV
+     originale imbustato con l'app (`catalogo_base.csv`), ultimo
+     paracadute se nessuno dei due sopra esiste.
+  2. `export_catalog_as_base(owner)` — SOLO admin: promuove gli
+     oggetti/categorie/valigie di `owner` SPUNTATI COME PUBBLICI (con
+     tutte le impostazioni: regola quantità, peso, tipologia predefinita,
+     modelli) a nuovo "catalogo di base", salvato in un file JSON nella
+     cartella dati persistente. Da qui in poi, ogni nuovo utente e ogni
+     "Importa catalogo di base" useranno questo al posto dell'originale
+     — finché non viene ripristinato o non viene scaricato e committato
+     come descritto al punto 1(b).
+  3. `reset_base_catalog_to_default()` — rimuove la personalizzazione in
+     `data/catalogo_base.json`, tornando al livello successivo (il JSON
+     imbustato nel codice, se presente, altrimenti il CSV originale).
   4. `import_notion_csv(csv_path, owner, target_trip=None)` — importa un
      CSV Notion qualsiasi nel catalogo di `owner`. Se `target_trip` è
      indicato, popola anche la lista PERSONALE di `owner` per quel
@@ -44,6 +54,15 @@ from app.models import (
 
 
 BASE_CATALOG_PATH = Path(__file__).resolve().parent / "seed_data" / "catalogo_base.csv"
+# Alternativa IMBUSTATA nel codice (git-tracked): se presente, viene
+# preferita al CSV originale. È il modo in cui il file scaricato con
+# "Scarica il file" (impostazioni -> Configura catalogo pubblico) può
+# sostituire il catalogo di partenza di un'installazione fatta da zero
+# — basta salvarlo qui con questo nome esatto e committarlo, senza
+# alcuna conversione (è già nel formato giusto, dato che è lo stesso
+# generato da export_catalog_as_base). Il CSV resta comunque come
+# ultimo paracadute se anche questo file non esiste.
+BASE_CATALOG_JSON_PATH = Path(__file__).resolve().parent / "seed_data" / "catalogo_base.json"
 
 KNOWN_PER_DAY_ITEMS = {"mutande", "calze", "calzini", "boxer"}
 KNOWN_FIXED_ITEMS = {
@@ -373,14 +392,24 @@ def import_notion_csv(csv_path, owner: User, target_trip: Trip | None = None) ->
 
 def import_base_catalog_for_user(user: User) -> ImportSummary:
     """
-    Importa il catalogo di base nel catalogo dell'utente indicato: quello
-    PERSONALIZZATO se un admin ne ha esportato uno (vedi
-    export_catalog_as_base), altrimenti quello originale imbustato con
-    l'app.
+    Importa il catalogo di base nel catalogo dell'utente indicato,
+    scegliendo tra TRE livelli, nell'ordine:
+    1. Quello PERSONALIZZATO in `data/catalogo_base.json` (se un admin
+       ne ha esportato uno da "Configura catalogo pubblico" — vive
+       nella cartella dati persistente, MAI nel codice, quindi resta
+       specifico di QUESTA installazione anche dopo un aggiornamento).
+    2. Quello IMBUSTATO nel codice come JSON (`app/seed_data/catalogo_base.json`,
+       se presente — è il modo per sostituire il catalogo di partenza
+       di un'installazione fatta da zero: basta scaricare il file da
+       "Scarica il file" e committarlo con questo nome esatto).
+    3. Il CSV originale imbustato con l'app (`catalogo_base.csv`), come
+       ultimo paracadute se nessuno dei due sopra esiste.
     """
     custom_path = _custom_base_catalog_path()
     if custom_path.exists():
         return _import_base_catalog_json(custom_path, owner=user)
+    if BASE_CATALOG_JSON_PATH.exists():
+        return _import_base_catalog_json(BASE_CATALOG_JSON_PATH, owner=user)
     return import_notion_csv(BASE_CATALOG_PATH, owner=user, target_trip=None)
 
 

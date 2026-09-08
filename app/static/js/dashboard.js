@@ -904,6 +904,42 @@ function initPublicToggles() {
 }
 
 /**
+ * Attiva/disattiva la "modalità modifica tabella": i separatori tra le
+ * colonne (normalmente invisibili — brutti da vedere sempre, come
+ * segnalato) compaiono SOLO mentre questa modalità è attiva, tramite
+ * una classe sul <body> che il CSS usa per mostrarli. Resta attiva
+ * finché l'utente non preme ESPLICITAMENTE "Fine modifica" — un
+ * singolo trascinamento NON la chiude da solo (bug reale corretto:
+ * prima si usciva in automatico dopo ogni trascinamento, impedendo di
+ * regolare più colonne una dopo l'altra senza riattivarla ogni volta).
+ */
+function initColumnEditToggle() {
+  document.querySelectorAll("[data-column-edit-toggle]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (document.body.classList.contains("editing-table-columns")) {
+        exitColumnEditMode();
+        return;
+      }
+      document.body.classList.add("editing-table-columns");
+      document.querySelectorAll("[data-column-edit-toggle]").forEach((b) => {
+        b.classList.add("is-active");
+        b.innerHTML = '<i data-lucide="check" class="icon"></i> Fine modifica';
+      });
+      if (window.lucide) window.lucide.createIcons();
+    });
+  });
+}
+
+function exitColumnEditMode() {
+  document.body.classList.remove("editing-table-columns");
+  document.querySelectorAll("[data-column-edit-toggle]").forEach((btn) => {
+    btn.classList.remove("is-active");
+    btn.innerHTML = '<i data-lucide="columns-3" class="icon"></i> Modifica tabella';
+  });
+  if (window.lucide) window.lucide.createIcons();
+}
+
+/**
  * Trascinamento a mano della larghezza delle colonne (solo vista
  * testo — con le icone le colonne sono già strette per definizione,
  * regolarle non avrebbe senso). Ogni intestazione resizabile ha un
@@ -925,6 +961,14 @@ function initPublicToggles() {
  * solo un click e mostra l'errore"). Con `table-layout:fixed`,
  * impostare la larghezza sulle <th> della PRIMA riga basta a
  * controllare tutta la colonna, in ogni riga della tabella.
+ *
+ * Una pagina come Catalogo → Oggetti mostra UNA tabella per categoria,
+ * ma tutte condividono la STESSA chiave ("catalog-items") e quindi le
+ * STESSE larghezze salvate: trascinare in UNA di queste applica ORA
+ * subito il risultato anche a TUTTE LE ALTRE tabelle con la stessa
+ * chiave, in pagina — non solo a quella su cui si è trascinato
+ * (bug reale segnalato: "la modifica dev'essere valida per tutte le
+ * categorie e applicata subito", prima serviva ricaricare la pagina).
  */
 function initColumnResize() {
   document.querySelectorAll("table[data-resizable-table]").forEach((table) => {
@@ -934,6 +978,12 @@ function initColumnResize() {
     if (wrapper && wrapper.dataset.columnStyle === "icons") return;
 
     const tableKey = table.dataset.resizableTable;
+    // Non tutte le tabelle hanno una prima colonna "di servizio" NON
+    // regolabile (nel catalogo è il trascina-riordina, larghezza fissa
+    // 30px) — quante colonne INIZIALI saltare, prima di quella salvata,
+    // si legge da questo attributo (0 = tutte regolabili, come le
+    // Valigie; 1 = la prima esclusa, come il Catalogo).
+    const resizeStartIndex = Number(table.dataset.resizeStartIndex || 0);
     const headerRow = table.querySelector("thead tr");
     if (!headerRow) return;
     const ths = Array.from(headerRow.children);
@@ -993,14 +1043,32 @@ function initColumnResize() {
         // ths[1] in poi, lette ORA dalla loro larghezza REALE renderizzata
         // (che sia stata appena cambiata o no, dato che il trascinamento
         // sposta sempre e solo DUE colonne, mai tutte).
-        const widths = ths.slice(1).map((th) => pctWidth(th));
+        const widths = ths.slice(resizeStartIndex).map((th) => pctWidth(th));
         apiFetch("/api/colonne-larghezza", {
           method: "POST",
           body: JSON.stringify({ table: tableKey, widths }),
         }).then((payload) => {
           if (!payload || !payload.ok) {
             showToast((payload && payload.error) || "Larghezza non salvata: riprova.");
+            return;
           }
+          // Applica SUBITO lo stesso risultato a tutte le ALTRE tabelle
+          // con la stessa chiave (es. le altre categorie di Catalogo →
+          // Oggetti), senza dover ricaricare la pagina.
+          document.querySelectorAll(`table[data-resizable-table="${tableKey}"]`).forEach((otherTable) => {
+            if (otherTable === table) return;
+            const otherHeaderRow = otherTable.querySelector("thead tr");
+            if (!otherHeaderRow) return;
+            const otherThs = Array.from(otherHeaderRow.children).slice(resizeStartIndex);
+            otherThs.forEach((th, i) => {
+              if (widths[i] !== undefined) th.style.width = widths[i] + "%";
+            });
+          });
+          // NIENTE uscita automatica dalla modalità modifica qui: resta
+          // attiva finché l'utente non preme "Fine modifica" di persona
+          // (bug reale corretto: prima un singolo trascinamento chiudeva
+          // subito la modalità, impedendo di regolare più colonne di
+          // fila senza doverla riattivare ogni volta).
         }).catch(() => {
           showToast("Larghezza non salvata: controlla la connessione e riprova.");
         });
@@ -1076,6 +1144,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initItemReordering();
   initCatalogItemReordering();
   initColumnResize();
+  initColumnEditToggle();
   initPublicToggles();
 });
 
