@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Pagina non trovata — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="empty-state">
+  <i data-lucide="map-pinned" class="icon"></i>
+  <h2>Pagina non trovata</h2>
+  <p>Sembra che questa meta non esista sulla mappa.</p>
+  <a href="{{ url_for('dashboard.index') if current_user.is_authenticated else url_for('auth.login') }}" class="btn btn-primary" style="margin-top:16px;">
+    <i data-lucide="home" class="icon"></i> Torna alla dashboard
+  </a>
+</div>
+{% endblock %}

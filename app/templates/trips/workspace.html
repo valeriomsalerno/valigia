@@ -1,0 +1,333 @@
+{% extends "base.html" %}
+{% block title %}{{ trip.destination }} — {{ app_name }}{% endblock %}
+
+{% block content %}
+
+<a href="{{ url_for('trips.list_trips') }}" class="btn btn-ghost btn-sm" style="margin-bottom:10px;">
+  <i data-lucide="plane" class="icon"></i> Tutti i viaggi
+</a>
+
+<div class="flex gap-sm" style="flex-wrap:wrap; justify-content:flex-end; gap:10px;">
+  {% if not is_owner %}
+  <span class="shared-badge"><i data-lucide="users" class="icon"></i> Viaggio di {{ trip.owner.display_name }}</span>
+  {% endif %}
+
+  <div class="flex gap-sm" style="flex-wrap:wrap; justify-content:flex-end;">
+    <a href="{{ url_for('trips.manage_luggage', trip_id=trip.id) }}" class="btn btn-ghost btn-sm">
+      <i data-lucide="briefcase" class="icon"></i> Valigie
+    </a>
+    {% if is_owner %}
+    <a href="{{ url_for('trips.manage_sharing', trip_id=trip.id) }}" class="btn btn-ghost btn-sm">
+      <i data-lucide="users" class="icon"></i> Condividi
+    </a>
+    <a href="{{ url_for('trips.edit', trip_id=trip.id) }}" class="btn btn-ghost btn-sm">
+      <i data-lucide="pencil" class="icon"></i> Modifica
+    </a>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ============================================================
+     Carta d'imbarco
+     ============================================================ -->
+<div class="boarding-pass {{ 'has-cover' if trip.cover_image_url }}">
+  <div class="bp-main" {% if trip.cover_image_url %}style="background-image:url('{{ trip.cover_image_url }}'); background-position: {{ trip.cover_image_position }};"{% endif %}>
+    <div class="bp-eyebrow">
+      <i data-lucide="{{ 'plane-takeoff' if trip.is_upcoming else ('plane' if trip.is_ongoing else 'plane-landing') }}" class="icon"></i>
+      {% if trip.is_ongoing %}Viaggio in corso
+      {% elif trip.is_upcoming %}Prossimo viaggio
+      {% else %}Viaggio concluso{% endif %}
+    </div>
+    <h1 class="bp-destination">{{ trip.destination }}</h1>
+    <div class="bp-dates">
+      <i data-lucide="calendar" class="icon"></i>
+      <span>{{ trip.start_date | data_it }}</span>
+      <span class="sep">→</span>
+      <span>{{ trip.end_date | data_it }}</span>
+      <span>· {{ trip.days }} giorni</span>
+    </div>
+
+    <div class="bp-progress-label">
+      <span>Pronto per la partenza (tuo)</span>
+      <span data-stat="percentuale">{{ stats.percentuale_pronta }}%</span>
+    </div>
+    <div class="bp-progress-track">
+      <div class="bp-progress-fill" data-progress-fill style="width: {{ stats.percentuale_pronta }}%;"></div>
+    </div>
+
+    {% if trip.notes %}
+    <p class="text-sm" style="margin-top:14px; opacity:0.85;">{{ trip.notes }}</p>
+    {% endif %}
+  </div>
+
+  <div class="bp-stub">
+    {% if trip.is_upcoming %}
+    <div class="bp-countdown">
+      <span class="num">{{ trip.days_to_departure }}</span>
+      <span class="unit">giorni alla<br>partenza</span>
+    </div>
+    {% elif trip.is_ongoing %}
+    <div class="bp-countdown"><span class="unit" style="font-size:15px; color:var(--ivory);">Buon viaggio!</span></div>
+    {% else %}
+    <div class="bp-countdown"><span class="unit" style="font-size:15px; color:var(--ivory);">Viaggio concluso</span></div>
+    {% endif %}
+
+    <div class="bp-stat-row"><span>Oggetti totali</span><span class="n" data-stat="totale">{{ stats.totale }}</span></div>
+    <div class="bp-stat-row is-green"><span>In valigia</span><span class="n" data-stat="conservati">{{ stats.conservati }}</span></div>
+    <div class="bp-stat-row is-red"><span>Da comprare</span><span class="n" data-stat="da_comprare">{{ stats.da_comprare }}</span></div>
+    <div class="bp-stat-row"><span>Da preparare</span><span class="n" data-stat="da_preparare">{{ stats.da_preparare }}</span></div>
+
+    {% if stats.luggages %}
+    <div class="bp-luggage-block">
+      {% for lug in stats.luggages %}
+      <div class="bp-luggage-row" title="{{ lug.name }}{{ ' — valigia condivisa: il peso somma le cose di tutti' if lug.is_shared else '' }}">
+        <div class="bp-luggage-top">
+          <span class="bp-luggage-type">
+            {{ lug.tipologia_label }}
+            {% if lug.is_shared %}<i data-lucide="users" class="icon bp-shared-icon"></i>{% endif %}
+          </span>
+          <span class="n" data-packed-luggage="{{ lug.trip_luggage_id }}">{{ lug.packed_qty }}</span>
+        </div>
+        <div class="bp-luggage-bottom">
+          <span class="bp-luggage-name">{{ lug.name }}</span>
+          {% if lug.total_weight_grams %}
+          <span data-weight-luggage="{{ lug.trip_luggage_id }}">{{ (lug.total_weight_grams / 1000) | numero_it(2) }} kg</span>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ============================================================
+     Schede principali: Valigia / Lista della spesa
+     ============================================================ -->
+<div class="main-tabs" data-main-tabs data-trip-id="{{ trip.id }}">
+  <button type="button" class="main-tab active" data-main-tab-btn="valigia">
+    <i data-lucide="briefcase" class="icon"></i> Valigia
+  </button>
+  <button type="button" class="main-tab" data-main-tab-btn="spesa" id="spesa">
+    <i data-lucide="shopping-cart" class="icon"></i> Lista della spesa
+    {% set tot_spesa_count = shopping_summary | map(attribute='missing_items') | map('length') | sum %}
+    <span class="badge-count" data-main-tab-shopping-badge {% if not tot_spesa_count %}style="display:none;"{% endif %}>{{ tot_spesa_count or '' }}</span>
+  </button>
+</div>
+
+<!-- ============================================================
+     Pannello Valigia
+     ============================================================ -->
+<div class="main-tab-panel" data-main-tab-panel="valigia">
+
+  <div class="toolbar">
+    <form method="get" class="flex gap-sm" style="flex:1; flex-wrap:wrap;">
+      <div class="search-field">
+        <i data-lucide="search" class="icon"></i>
+        <input type="text" name="q" value="{{ search }}" placeholder="Cerca un oggetto…">
+      </div>
+      <input type="hidden" name="stato" value="{{ status_filter }}">
+      <noscript><button type="submit" class="btn btn-ghost btn-sm">Filtra</button></noscript>
+    </form>
+
+    <label class="switch-row" title="Nasconde dalla vista gli oggetti già in valigia (verdi)">
+      <span class="switch-track"><input type="checkbox" data-hide-completed><span class="switch-thumb"></span></span>
+      <span class="switch-label">Nascondi già in valigia</span>
+    </label>
+
+    <label class="switch-row" title="Nasconde dalla vista gli oggetti non necessari per questo viaggio (grigi)">
+      <span class="switch-track"><input type="checkbox" data-hide-unnecessary><span class="switch-thumb"></span></span>
+      <span class="switch-label">Nascondi non necessari</span>
+    </label>
+
+    <form method="post" action="{{ url_for('trips.recompute', trip_id=trip.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-ghost btn-sm" title="Ricalcola le tue quantità automatiche">
+        <i data-lucide="refresh-cw" class="icon"></i> Ricalcola
+      </button>
+    </form>
+    <a href="{{ url_for('catalog.new_item') }}" class="btn btn-brass btn-sm">
+      <i data-lucide="plus" class="icon"></i> Nuovo oggetto
+    </a>
+  </div>
+
+  <div class="status-pills mt-lg">
+    <a class="status-pill status-pill--tutti {{ 'is-active' if not status_filter }}"
+       href="{{ url_for('trips.workspace', trip_id=trip.id, q=search, stato='') }}">Tutti</a>
+    <a class="status-pill status-pill--verde {{ 'is-active' if status_filter == 'conservato' }}"
+       href="{{ url_for('trips.workspace', trip_id=trip.id, q=search, stato='conservato') }}">
+      <span class="dot dot--verde"></span> In valigia</a>
+    <a class="status-pill status-pill--rosso {{ 'is-active' if status_filter == 'da_comprare' }}"
+       href="{{ url_for('trips.workspace', trip_id=trip.id, q=search, stato='da_comprare') }}">
+      <span class="dot dot--rosso"></span> Da comprare</a>
+    <a class="status-pill status-pill--giallo {{ 'is-active' if status_filter == 'da_preparare' }}"
+       href="{{ url_for('trips.workspace', trip_id=trip.id, q=search, stato='da_preparare') }}">
+      <span class="dot dot--giallo"></span> Da preparare</a>
+    <a class="status-pill status-pill--grigio {{ 'is-active' if status_filter == 'non_necessario' }}"
+       href="{{ url_for('trips.workspace', trip_id=trip.id, q=search, stato='non_necessario') }}">
+      <span class="dot dot--grigio"></span> Non necessario</a>
+  </div>
+
+  {% if not grouped %}
+  <div class="empty-state">
+    <i data-lucide="search-x" class="icon"></i>
+    <h2>Nessun oggetto trovato</h2>
+    <p>Prova a cambiare i filtri, oppure aggiungi un nuovo oggetto al catalogo.</p>
+  </div>
+  {% else %}
+
+  <!-- Sotto-schede per categoria: una sola visibile alla volta, per evitare
+       di dover scorrere una lunga lista quando le categorie sono tante. -->
+  <div class="category-tabs" data-category-tabs>
+    <button type="button" class="category-tab active" data-category-tab="all">
+      <i data-lucide="layout-grid" class="icon"></i> Tutti
+    </button>
+    {% for group in grouped %}
+    <button type="button" class="category-tab"
+            data-category-tab="{{ group.category.id }}" style="--cat-color: {{ group.category.color }};">
+      <i data-lucide="{{ group.category.icon }}" class="icon"></i>
+      {{ group.category.name }}
+      <span class="count">{{ group.trip_items | length }}</span>
+    </button>
+    {% endfor %}
+  </div>
+
+  {% for group in grouped %}
+  <div class="category-section category-panel" data-category-panel="{{ group.category.id }}" style="--cat-color: {{ group.category.color }};">
+    <div class="item-list" {% if not search and not status_filter %}data-reorderable{% endif %}>
+      {% for ti in group.trip_items %}
+      <div class="item-row" data-status="{{ ti.status }}" data-overflow="{{ 'true' if ti.is_overflowing else 'false' }}"
+           data-worn="{{ 'true' if ti.indossato_qty > 0 else 'false' }}"
+           data-trip-item-id="{{ ti.id }}" data-item-id="{{ ti.item.id }}">
+
+        {% if not search and not status_filter %}
+        <span class="drag-handle" title="Trascina per riordinare" aria-hidden="true">
+          <i data-lucide="grip-vertical" class="icon"></i>
+        </span>
+        {% endif %}
+
+        <div class="item-name-col">
+          <button type="button" class="item-name-btn">{{ ti.item.name }}</button>
+          <span class="item-status-label" data-status-label>{{ ti.status_label }}</span>
+        </div>
+
+        <div class="qty-groups">
+          <div class="qty-stepper qty-stepper--target" data-trip-item-id="{{ ti.id }}" title="Obiettivo per questo viaggio">
+            <span class="qty-label"><i data-lucide="target" class="icon" style="width:11px;height:11px;"></i></span>
+            <button type="button" data-step="-1" aria-label="Diminuisci">−</button>
+            <input type="number" inputmode="numeric" min="0" max="999" value="{{ ti.target_qty if ti.target_qty is not none else '' }}" placeholder="—">
+            <button type="button" data-step="1" aria-label="Aumenta">+</button>
+          </div>
+
+          {% if ti.item.has_variants %}
+          {% for tl in my_luggages %}
+          <div class="qty-stepper qty-stepper--variant-luggage" data-trip-item-id="{{ ti.id }}" data-trip-luggage-id="{{ tl.id }}"
+               data-item-name="{{ ti.item.name }}"
+               data-luggage-name="{{ luggage_labels[tl.id] }}"
+               data-variants='{{ ti.item.variants | map("get_variant_modal_data", ti, tl.id) | list | tojson }}'
+               title="{{ luggage_labels[tl.id] }} — clic su + o − per scegliere il modello">
+            <span class="qty-label">{{ luggage_labels[tl.id] }}</span>
+            <button type="button" class="variant-modal-trigger" aria-label="Diminuisci">−</button>
+            <input type="number" inputmode="numeric" value="{{ ti.qty_for_luggage(tl.id) }}" readonly tabindex="-1">
+            <button type="button" class="variant-modal-trigger" aria-label="Aumenta">+</button>
+          </div>
+          {% endfor %}
+          {% else %}
+          {% for tl in my_luggages %}
+          <div class="qty-stepper {{ 'has-mismatch' if ti.has_luggage_mismatch(tl.id) }}" data-trip-item-id="{{ ti.id }}" data-trip-luggage-id="{{ tl.id }}"
+               title="{{ tl.luggage.display_name }}{{ (' — attenzione: ' ~ ti.item.name ~ ' andrebbe messo nella valigia da ' ~ ti.item.default_luggage_type_label|lower) if ti.has_luggage_mismatch(tl.id) else '' }}">
+            <span class="qty-label">{{ luggage_labels[tl.id] }}</span>
+            <button type="button" data-step="-1" aria-label="Diminuisci">−</button>
+            <input type="number" inputmode="numeric" min="0" max="999" value="{{ ti.qty_for_luggage(tl.id) }}">
+            <button type="button" data-step="1" aria-label="Aumenta">+</button>
+            {% if ti.has_luggage_mismatch(tl.id) %}<i data-lucide="alert-triangle" class="icon mismatch-flag"></i>{% endif %}
+          </div>
+          {% endfor %}
+          {% endif %}
+
+          <div class="qty-stepper qty-stepper--worn" data-trip-item-id="{{ ti.id }}" title="Quante unità le indossi direttamente (non vanno in valigia)">
+            <span class="qty-label"><i data-lucide="shirt" class="icon" style="width:11px;height:11px;"></i></span>
+            <button type="button" data-step="-1" aria-label="Diminuisci">−</button>
+            <input type="number" inputmode="numeric" min="0" max="999" value="{{ ti.indossato_qty }}">
+            <button type="button" data-step="1" aria-label="Aumenta">+</button>
+          </div>
+
+          <span class="qty-overflow-warning" title="La somma nelle valigie e indossato supera l'obiettivo impostato">
+            <i data-lucide="alert-triangle" class="icon" style="width:12px;height:12px;"></i> oltre l'obiettivo
+          </span>
+
+          <div class="missing-stepper" data-trip-item-id="{{ ti.id }}" data-active="{{ 'true' if ti.missing_qty > 0 else 'false' }}"
+               title="Quante unità mancano da acquistare">
+            <span class="cart-icon"><i data-lucide="shopping-cart" class="icon" style="width:14px;height:14px;"></i></span>
+            <button type="button" data-step="-1" aria-label="Diminuisci">−</button>
+            <input type="number" inputmode="numeric" min="0" max="999" value="{{ ti.missing_qty }}">
+            <button type="button" data-step="1" aria-label="Aumenta">+</button>
+          </div>
+        </div>
+
+        <div class="toggle-group">
+          <button type="button" class="info-btn" title="Dettagli">
+            <i data-lucide="info" class="icon"></i>
+          </button>
+        </div>
+
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+</div>
+
+<!-- ============================================================
+     Pannello Lista della spesa (condivisa, per acquirente)
+     ============================================================ -->
+<div class="main-tab-panel is-hidden" data-main-tab-panel="spesa">
+  <div class="search-field" style="margin-bottom:16px;">
+    <i data-lucide="search" class="icon"></i>
+    <input type="text" placeholder="Cerca un oggetto…" data-shopping-search>
+  </div>
+  <div data-shopping-panel-list>
+    {% include "trips/_shopping_panel.html" %}
+  </div>
+</div>
+
+<!-- ============================================================
+     Pannello di dettaglio (vista approfondita di un oggetto)
+     ============================================================ -->
+<div class="detail-overlay" data-detail-overlay></div>
+<div class="detail-panel" data-detail-panel data-trip-id="{{ trip.id }}">
+  <button type="button" class="detail-close" data-detail-close aria-label="Chiudi">
+    <i data-lucide="x" class="icon"></i>
+  </button>
+  <div class="detail-panel-inner" data-detail-panel-inner></div>
+</div>
+
+<!-- ============================================================
+     Finestra di scelta del modello (oggetti con Item.has_variants):
+     un'unica finestra riutilizzata per tutti gli stepper della
+     pagina, popolata dinamicamente via JS al momento dell'apertura.
+     ============================================================ -->
+<div class="variant-modal-overlay" data-variant-modal-overlay style="display:none;">
+  <div class="variant-modal">
+    <div class="variant-modal-header">
+      <div>
+        <h3 data-variant-modal-title></h3>
+        <p class="text-sm text-muted" data-variant-modal-subtitle></p>
+      </div>
+      <button type="button" class="btn btn-ghost btn-sm" data-variant-modal-close aria-label="Chiudi">
+        <i data-lucide="x" class="icon"></i>
+      </button>
+    </div>
+    <div class="variant-modal-list" data-variant-modal-list></div>
+    <div class="variant-modal-footer">
+      <button type="button" class="btn btn-primary" data-variant-modal-close>Fatto</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}?v={{ app_version }}"></script>
+{% endblock %}

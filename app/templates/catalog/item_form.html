@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Modifica oggetto' if item else 'Nuovo oggetto' }} — {{ app_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>{{ 'Modifica "%s"' % item.name if item else 'Nuovo oggetto' }}</h1>
+    <p>Definisci come questo oggetto si comporta in tutti i tuoi viaggi.</p>
+  </div>
+  <div class="flex gap-sm" style="flex-wrap:wrap; justify-content:flex-end;">
+    {% if item %}
+    {% if prev_item_id %}
+    <a href="{{ url_for('catalog.edit_item', item_id=prev_item_id) }}" class="btn btn-ghost btn-sm" title="Oggetto precedente in questa categoria">
+      <i data-lucide="chevron-left" class="icon"></i> Precedente
+    </a>
+    {% endif %}
+    {% if next_item_id %}
+    <a href="{{ url_for('catalog.edit_item', item_id=next_item_id) }}" class="btn btn-ghost btn-sm" title="Oggetto successivo in questa categoria">
+      Successivo <i data-lucide="chevron-right" class="icon"></i>
+    </a>
+    {% endif %}
+    {% endif %}
+    <a href="{{ url_for('catalog.items') }}" class="btn btn-ghost btn-sm">
+      <i data-lucide="package" class="icon"></i> Torna al catalogo
+    </a>
+  </div>
+</div>
+
+<div class="card" style="max-width:560px;">
+  <form method="post" novalidate>
+    {{ form.hidden_tag() }}
+    <div class="form-grid">
+      <div class="form-row">
+        {{ form.name.label }}
+        {{ form.name(autofocus=true, placeholder="Es. Passaporto") }}
+        {% for e in form.name.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+      </div>
+
+      <div class="form-row">
+        {{ form.category_id.label }}
+        {{ form.category_id() }}
+      </div>
+
+      <div class="form-row">
+        {{ form.quantity_rule.label }}
+        {{ form.quantity_rule(id="quantity_rule") }}
+        <p class="hint">Determina come viene proposta la quantità quando l'oggetto compare in un nuovo viaggio. Puoi comunque modificarla a mano in ogni momento dalla dashboard.</p>
+      </div>
+
+      <div class="form-row rule-field" data-rule="fixed">
+        {{ form.fixed_qty.label }}
+        {{ form.fixed_qty() }}
+        <p class="hint">Es. iPhone, patente: sempre lo stesso numero.</p>
+      </div>
+
+      <div class="form-row rule-field" data-rule="per_day">
+        {{ form.per_day_extra.label }}
+        {{ form.per_day_extra() }}
+        <p class="hint">Es. calzini/mutande: giorni di viaggio + questo numero di scorta.</p>
+      </div>
+
+      <div class="form-row">
+        {{ form.default_luggage_type.label }}
+        {{ form.default_luggage_type() }}
+        <p class="hint">Facoltativo, per qualunque regola: se impostata, riceverai un avviso quando questo oggetto viene messo in una valigia di tipologia diversa (non sceglie né pre-compila nulla al posto tuo).</p>
+      </div>
+
+      <div class="two-col">
+        <div class="form-row">
+          {{ form.weight_grams.label }}
+          {{ form.weight_grams(placeholder="Es. 350,5") }}
+          <p class="hint">Peso di UNA unità, in grammi. Virgola per i decimali, punto per le migliaia (es. 1.250,5). Vale solo se l'oggetto NON ha modelli (vedi sotto).</p>
+          {% for e in form.weight_grams.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+        </div>
+      </div>
+
+      {% if item %}
+      <div class="form-row" style="margin-top:-4px;">
+        <a href="{{ url_for('catalog.item_detail', item_id=item.id) }}" class="btn btn-ghost btn-sm" style="align-self:flex-start;" title="Vedi dettagli, storico nei viaggi e modelli">
+          <i data-lucide="layers" class="icon"></i> Modelli e dettagli{% if item.has_variants %} ({{ item.variants | length }}){% endif %}
+        </a>
+        <p class="hint">Se questo oggetto esiste in più varianti diverse tra loro (es. camicie di taglio diverso, ciascuna col proprio peso), gestiscile qui invece di un peso unico sopra: il peso di ciascun modello prende il sopravvento su quello impostato in questo modulo.</p>
+      </div>
+      {% else %}
+      <div class="form-row" style="margin-top:-4px;">
+        <p class="hint">Se questo oggetto esisterà in più varianti diverse tra loro (es. camicie di taglio diverso), potrai gestirle come "modelli" (ciascuna col proprio peso) — ma solo DOPO aver salvato l'oggetto per la prima volta.</p>
+      </div>
+      {% endif %}
+
+      <div class="form-row">
+        {{ form.notes.label }}
+        {{ form.notes(rows=3, placeholder="Note generali, valide per tutti i viaggi…") }}
+      </div>
+    </div>
+
+    <div class="flex gap-sm" style="margin-top:20px; flex-wrap:wrap;">
+      {{ form.submit(class_="btn btn-primary") }}
+      {% if item and next_item_id %}
+      <button type="submit" name="save_and_next" value="1" class="btn btn-ghost">
+        Salva e vai al successivo <i data-lucide="chevron-right" class="icon"></i>
+      </button>
+      {% endif %}
+      <a href="{{ url_for('catalog.items') }}" class="btn btn-ghost">Annulla</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  // Mostra solo il campo pertinente alla regola di quantità selezionata.
+  function syncRuleFields() {
+    const rule = document.getElementById("quantity_rule").value;
+    document.querySelectorAll(".rule-field").forEach((el) => {
+      el.style.display = el.dataset.rule === rule ? "flex" : "none";
+    });
+  }
+  document.getElementById("quantity_rule").addEventListener("change", syncRuleFields);
+  document.addEventListener("DOMContentLoaded", syncRuleFields);
+</script>
+{% endblock %}

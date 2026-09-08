@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Categorie — {{ app_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Categorie</h1>
+    <p>Raggruppano gli oggetti nella dashboard. Puoi aggiungerne o rinominarle quando vuoi.</p>
+  </div>
+</div>
+
+<div class="card" style="padding:0 8px 0 0; margin-bottom:22px;">
+  {% if categories %}
+  <table class="simple-table responsive-stack" style="table-layout:fixed;">
+    <thead><tr>
+      <th style="width:70px;">Colore</th>
+      <th style="width:25%;">Nome</th>
+      <th style="width:230px;">Icona</th>
+      <th style="width:80px; text-align:right;">Oggetti</th>
+      <th style="width:92px;"></th>
+    </tr></thead>
+    <tbody>
+      {% for c in categories %}
+      <tr>
+        <td style="width:56px;" data-label="Colore">
+          <form method="post" action="{{ url_for('catalog.edit_category', category_id=c.id) }}" id="cat-form-{{ c.id }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="color" name="color" value="{{ c.color }}" form="cat-form-{{ c.id }}"
+                   style="width:34px; height:28px; border:none; background:none; cursor:pointer;">
+          </form>
+        </td>
+        <td data-label="Nome">
+          <input type="text" name="name" value="{{ c.name }}" form="cat-form-{{ c.id }}"
+                 style="border:1px solid var(--line); border-radius:8px; padding:6px 8px; width:100%;">
+        </td>
+        <td data-label="Icona">
+          <input type="text" name="icon" value="{{ c.icon }}" form="cat-form-{{ c.id }}"
+                 style="border:1px solid var(--line); border-radius:8px; padding:6px 8px; width:100%; box-sizing:border-box;"
+                 title="Nome icona Lucide (lucide.dev)">
+        </td>
+        <td style="text-align:right;" data-label="Oggetti">{{ c.items | length }}</td>
+        <td style="text-align:right; white-space:nowrap;">
+          <button type="submit" class="btn btn-ghost btn-sm" title="Salva" form="cat-form-{{ c.id }}">
+            <i data-lucide="check" class="icon"></i>
+          </button>
+          <form method="post" action="{{ url_for('catalog.delete_category', category_id=c.id) }}" style="display:inline;"
+                onsubmit="return confirm('Eliminare questa categoria?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-ghost btn-sm" title="Elimina" {{ 'disabled' if c.items }}>
+              <i data-lucide="trash-2" class="icon"></i>
+            </button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state"><p>Nessuna categoria ancora.</p></div>
+  {% endif %}
+</div>
+
+<div class="card" style="max-width:440px;">
+  <h3 style="font-size:15px; margin-bottom:14px;">Nuova categoria</h3>
+  <form method="post" novalidate>
+    {{ form.hidden_tag() }}
+    <div class="form-grid">
+      <div class="form-row">
+        {{ form.name.label }}
+        {{ form.name(placeholder="Es. Sport") }}
+        {% for e in form.name.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+      </div>
+      <div class="two-col">
+        <div class="form-row">
+          {{ form.color.label }}
+          {{ form.color(type="color", value="#8C6D46", style="height:40px; padding:4px;") }}
+        </div>
+        <div class="form-row">
+          {{ form.icon.label }}
+          {{ form.icon(placeholder="shapes") }}
+          <p class="hint">Nome icona da <a href="https://lucide.dev/icons" target="_blank" rel="noopener">lucide.dev</a></p>
+        </div>
+      </div>
+    </div>
+    {{ form.submit(class_="btn btn-primary", style="margin-top:16px;") }}
+  </form>
+</div>
+{% endblock %}

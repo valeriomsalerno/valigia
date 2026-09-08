@@ -1,0 +1,143 @@
+{# Frammento iniettato via fetch() nel pannello laterale del workspace di viaggio. #}
+
+<h3 style="font-size:19px; margin-bottom:2px;">{{ item.name }}</h3>
+<div class="flex gap-sm" style="margin-bottom:18px;">
+  <span class="color-dot" style="background:{{ item.category.color }};"></span>
+  <span class="text-muted text-sm">{{ item.category.name }}</span>
+  {% if item.weight_grams %}
+  <span class="text-muted text-sm">· {{ item.weight_grams | numero_it }} g/unità</span>
+  {% endif %}
+</div>
+
+<div class="stack-sm" style="margin-bottom:20px;">
+  <div class="flex-between">
+    <span class="text-sm text-muted">Stato in questo viaggio</span>
+    <span class="status-pill status-pill--{{ 'verde' if trip_item.status == 'conservato' else ('rosso' if trip_item.status == 'da_comprare' else ('giallo' if trip_item.status == 'da_preparare' else 'grigio')) }}">
+      {{ trip_item.status_label }}
+    </span>
+  </div>
+  {% if trip_item.target_qty is not none %}
+  <div class="flex-between">
+    <span class="text-sm text-muted">Obiettivo per questo viaggio</span>
+    <span style="font-weight:600;">{{ trip_item.target_qty }}</span>
+  </div>
+  {% endif %}
+  {% if item.has_variants %}
+  <div class="flex-between">
+    <span class="text-sm text-muted">Totale modelli specificati</span>
+    <span style="font-weight:700;">{{ trip_item.variants_total_qty }}</span>
+  </div>
+  {% else %}
+  <div class="flex-between">
+    <span class="text-sm text-muted">Nelle valigie (somma)</span>
+    <span style="font-weight:700;">{{ trip_item.total_qty }}</span>
+  </div>
+  {% endif %}
+  <div class="flex-between">
+    <span class="text-sm text-muted">Già posseduta</span>
+    <span style="font-weight:600;">{{ trip_item.owned_qty }}</span>
+  </div>
+  {% if trip_item.missing_qty > 0 %}
+  <div class="flex-between">
+    <span class="text-sm text-muted">Da acquistare</span>
+    <span style="font-weight:700; color:var(--red);">{{ trip_item.missing_qty }}</span>
+  </div>
+  {% endif %}
+  {% if item.has_variants %}
+  <div class="flex-between">
+    <span class="text-sm text-muted">Peso totale (modelli specificati)</span>
+    <span style="font-weight:600;">
+      {%- set ns = namespace(peso=0) -%}
+      {%- for v in item.variants -%}
+        {%- set ns.peso = ns.peso + (v.weight_grams or 0) * trip_item.qty_for_variant(v.id) -%}
+      {%- endfor -%}
+      {{ ns.peso | numero_it }} g
+    </span>
+  </div>
+  {% for v in item.variants %}
+  <div class="flex-between">
+    <span class="text-sm text-muted">{{ v.description }}</span>
+    <span style="font-weight:600;">{{ trip_item.qty_for_variant(v.id) }}{{ ' (' ~ (v.weight_grams | numero_it) ~ ' g/unità)' if v.weight_grams }}</span>
+  </div>
+  {% endfor %}
+  {% else %}
+  {% if item.weight_grams %}
+  <div class="flex-between">
+    <span class="text-sm text-muted">Peso totale (nelle valigie)</span>
+    <span style="font-weight:600;">{{ (item.weight_grams * trip_item.total_qty) | numero_it }} g</span>
+  </div>
+  {% endif %}
+  {% for q in trip_item.quantities %}
+  <div class="flex-between">
+    <span class="text-sm text-muted">{{ q.trip_luggage.luggage.display_name }}</span>
+    <span style="font-weight:600;">{{ q.quantity }}</span>
+  </div>
+  {% endfor %}
+  {% endif %}
+</div>
+
+{% if auto_info %}
+<div class="flash flash-info" style="margin-bottom:20px;">
+  <i data-lucide="wand-2" class="icon"></i>
+  <span>{{ auto_info }}</span>
+</div>
+{% endif %}
+
+{% if trip_item.missing_qty > 0 and collaborators %}
+<div class="form-row" style="margin-bottom:20px;">
+  <label>Assegna l'acquisto a</label>
+  <select data-reassign-buyer="{{ trip_item.id }}">
+    <option value="" {{ 'selected' if not trip_item.assigned_buyer_id }}>Io</option>
+    {% for collab in collaborators %}
+    <option value="{{ collab.id }}" {{ 'selected' if trip_item.assigned_buyer_id == collab.id }}>{{ collab.display_name }}</option>
+    {% endfor %}
+  </select>
+  <p class="hint">Comparirà nella sua sezione della lista della spesa condivisa di questo viaggio.</p>
+</div>
+{% endif %}
+
+<div class="form-row" style="margin-bottom:20px;">
+  <label>Nota per questo viaggio</label>
+  <textarea data-note-field rows="3" placeholder="Es. portare solo se piove…">{{ trip_item.note }}</textarea>
+  <div class="flex-between">
+    <span class="text-sm text-muted" data-note-feedback></span>
+    <button type="button" class="btn btn-ghost btn-sm" data-save-note data-trip-item-id="{{ trip_item.id }}">
+      <i data-lucide="save" class="icon"></i> Salva nota
+    </button>
+  </div>
+</div>
+
+{% if item.notes %}
+<div class="form-row" style="margin-bottom:20px;">
+  <label>Note generali sull'oggetto</label>
+  <p class="text-sm" style="margin:0;">{{ item.notes }}</p>
+</div>
+{% endif %}
+
+{% if history %}
+<div class="form-row" style="margin-bottom:20px;">
+  <label>Nei tuoi altri viaggi</label>
+  <table class="simple-table">
+    {% for h in history %}
+    <tr>
+      <td>{{ h.trip.destination }}</td>
+      <td class="text-muted">{{ h.trip.start_date | data_it }}</td>
+      <td style="text-align:right;">{{ h.total_qty }} pz</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+<a href="{{ url_for('catalog.item_detail', item_id=item.id, da_viaggio=trip.id) }}" class="btn btn-ghost btn-sm" style="width:100%; justify-content:center;">
+  <i data-lucide="settings-2" class="icon"></i> Vai alle impostazioni dell'oggetto
+</a>
+
+<form method="post" action="{{ url_for('trips.reset_trip_item', trip_id=trip.id, trip_item_id=trip_item.id) }}"
+      style="margin-top:8px;"
+      onsubmit="return confirm('Azzerare le quantità di \'{{ item.name }}\' in valigia, nei modelli e indossato per QUESTO viaggio? L\'obiettivo e \'da comprare\' restano invariati.');">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <button type="submit" class="btn btn-ghost btn-sm" style="width:100%; justify-content:center; color:var(--red);">
+    <i data-lucide="rotate-ccw" class="icon"></i> Azzera questo oggetto per il viaggio
+  </button>
+</form>

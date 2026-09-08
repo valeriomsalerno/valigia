@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Accedi — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="auth-wrap" style="margin: -28px -20px -80px;">
+  <div class="auth-card">
+    <div class="auth-brand"><i data-lucide="plane" class="icon"></i> {{ app_name }}</div>
+    <p class="auth-sub">Accedi per gestire le tue valigie.</p>
+
+    <form method="post" novalidate>
+      {{ form.hidden_tag() }}
+      <div class="form-grid">
+        <div class="form-row">
+          {{ form.username.label }}
+          {{ form.username(autofocus=true, autocomplete="username", placeholder="admin", autocapitalize="none", autocorrect="off", spellcheck="false") }}
+          {% for e in form.username.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+        </div>
+        <div class="form-row">
+          {{ form.password.label }}
+          {{ form.password(autocomplete="current-password", placeholder="••••••••") }}
+          {% for e in form.password.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+        </div>
+      </div>
+      {{ form.submit(class_="btn btn-primary") }}
+    </form>
+    <p class="text-muted text-sm" style="text-align:center; margin-top:18px; margin-bottom:0;">{{ app_name }} v{{ app_version }}</p>
+  </div>
+</div>
+{% endblock %}

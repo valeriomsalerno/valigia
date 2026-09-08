@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Nuovo utente — {{ app_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Nuovo utente</h1>
+    <p>Riceverà subito il proprio catalogo personale, precaricato dal catalogo di base.</p>
+  </div>
+  <a href="{{ url_for('users.list_users') }}" class="btn btn-ghost btn-sm">
+    <i data-lucide="arrow-left" class="icon"></i> Utenti
+  </a>
+</div>
+
+<div class="card" style="max-width:480px;">
+  <form method="post" novalidate>
+    {{ form.hidden_tag() }}
+    <div class="form-grid">
+      <div class="form-row">
+        {{ form.username.label }}
+        {{ form.username(autofocus=true, placeholder="Es. maria", autocapitalize="none", autocorrect="off", spellcheck="false") }}
+        {% for e in form.username.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+      </div>
+      <div class="form-row">
+        {{ form.full_name.label }}
+        {{ form.full_name(placeholder="Es. Maria Rossi") }}
+        <p class="hint">Facoltativo: se lo lasci vuoto verrà mostrato il nickname.</p>
+      </div>
+      <div class="form-row">
+        {{ form.password.label }}
+        {{ form.password() }}
+        <p class="hint">L'utente dovrà cambiarla al primo accesso.</p>
+        {% for e in form.password.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+      </div>
+      <div class="form-row">
+        {{ form.role.label }}
+        {{ form.role() }}
+        <p class="hint">Solo gli amministratori possono creare/gestire altri utenti.</p>
+      </div>
+    </div>
+    <div class="flex gap-sm" style="margin-top:20px;">
+      {{ form.submit(class_="btn btn-primary") }}
+      <a href="{{ url_for('users.list_users') }}" class="btn btn-ghost">Annulla</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

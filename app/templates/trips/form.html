@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Modifica viaggio' if trip else 'Nuovo viaggio' }} — {{ app_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>{{ 'Modifica viaggio' if trip else 'Nuovo viaggio' }}</h1>
+    <p>{{ 'Cambiare le date ricalcola automaticamente gli oggetti "per giorno" (es. calzini).' if trip else 'Meta, date e (facoltativo) da quale viaggio copiare le quantità.' }}</p>
+  </div>
+  {% if trip %}
+  <a href="{{ url_for('trips.workspace', trip_id=trip.id) }}" class="btn btn-ghost btn-sm">
+    <i data-lucide="arrow-left" class="icon"></i> Torna al viaggio
+  </a>
+  {% else %}
+  <a href="{{ url_for('trips.list_trips') }}" class="btn btn-ghost btn-sm">
+    <i data-lucide="plane" class="icon"></i> Tutti i viaggi
+  </a>
+  {% endif %}
+</div>
+
+<div class="card" style="max-width:560px;">
+  {% if trip %}
+  <div class="cover-preview-wrap" data-cover-preview
+       data-draggable="{{ 'true' if trip.cover_image_is_upload else 'false' }}"
+       data-trip-id="{{ trip.id }}"
+       {% if not trip.cover_image_url %}style="display:none;"{% endif %}>
+    <div class="cover-preview" {% if trip.cover_image_url %}style="background-image:url('{{ trip.cover_image_url }}'); background-position: {{ trip.cover_image_position }};"{% endif %}></div>
+    <div class="cover-preview-hint" {% if not trip.cover_image_is_upload %}style="display:none;"{% endif %}><i data-lucide="move" class="icon"></i> Trascina per inquadrare</div>
+  </div>
+  {% endif %}
+
+  <form method="post" novalidate>
+    {{ form.hidden_tag() }}
+    <div class="form-grid">
+      <div class="form-row">
+        {{ form.destination.label }}
+        {{ form.destination(autofocus=true, placeholder="Es. Kyoto, Giappone") }}
+        {% for e in form.destination.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+      </div>
+
+      <div class="form-row">
+        {{ form.cover_search_terms.label }}
+        {{ form.cover_search_terms(placeholder="Es. Torre Eiffel, quartiere Montmartre…") }}
+        <p class="hint">Se vuoto, la ricerca automatica usa la meta. Compilalo per un'immagine più precisa (es. un monumento specifico invece della sola città).</p>
+        {% for e in form.cover_search_terms.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+      </div>
+
+      <div class="two-col">
+        <div class="form-row">
+          {{ form.start_date.label }}
+          {{ form.start_date() }}
+          {% for e in form.start_date.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+        </div>
+        <div class="form-row">
+          {{ form.end_date.label }}
+          {{ form.end_date() }}
+          {% for e in form.end_date.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+        </div>
+      </div>
+
+      {% if not trip %}
+      <div class="form-row">
+        {{ form.copy_from_trip_id.label }}
+        {{ form.copy_from_trip_id() }}
+        <p class="hint">Copia le quantità per borsa, le note e le unità mancanti già impostate in un tuo viaggio precedente (il check "già in valigia" riparte sempre da zero).</p>
+      </div>
+      {% endif %}
+
+      <div class="form-row">
+        {{ form.notes.label }}
+        {{ form.notes(rows=3, placeholder="Note libere sul viaggio…") }}
+      </div>
+    </div>
+
+    <div class="flex gap-sm" style="margin-top:20px;">
+      {{ form.submit(class_="btn btn-primary") }}
+      <a href="{{ url_for('trips.list_trips') if has_trips else url_for('dashboard.index') }}" class="btn btn-ghost">Annulla</a>
+    </div>
+  </form>
+
+  {% if trip %}
+  <div class="flex gap-sm" style="margin-top:14px; flex-wrap:wrap; align-items:center;">
+    <button type="button" class="btn btn-ghost btn-sm" data-search-cover-btn data-trip-id="{{ trip.id }}">
+      <i data-lucide="search" class="icon"></i> Cerca l'immagine
+    </button>
+    <span class="text-sm text-muted" data-search-cover-status></span>
+
+    <form method="post" action="{{ url_for('trips.upload_cover', trip_id=trip.id) }}" enctype="multipart/form-data" class="flex gap-sm" style="align-items:center;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="file" name="cover_file" id="cover_file" accept=".jpg,.jpeg,.png,.webp" style="display:none;"
+             onchange="this.form.requestSubmit()">
+      <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('cover_file').click()">
+        <i data-lucide="upload" class="icon"></i> Carica una tua immagine
+      </button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+{% if trip %}
+<div class="card mt-lg" style="max-width:560px;">
+  <h3 style="font-size:15px; margin-bottom:8px;">Azzera tutti gli oggetti</h3>
+  <p class="text-sm text-muted" style="margin-bottom:14px;">
+    Rimuove le quantità in valigia, nei modelli e indossato per OGNI oggetto di questo viaggio (solo i tuoi, non quelli di altri collaboratori).
+    L'obiettivo e "da comprare" di ciascun oggetto restano invariati. Utile per ripartire da zero se qualche numero sembra non tornare.
+  </p>
+  <form method="post" action="{{ url_for('trips.reset_all_trip_items', trip_id=trip.id) }}"
+        onsubmit="return confirm('Azzerare TUTTI i tuoi oggetti per questo viaggio? Le quantità in valigia, nei modelli e indossato andranno perse (obiettivo e \'da comprare\' restano invariati). Non si può annullare.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-ghost btn-sm" style="color:var(--red);">
+      <i data-lucide="rotate-ccw" class="icon"></i> Azzera tutti gli oggetti di questo viaggio
+    </button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  // Quando si sceglie la data di partenza, propone automaticamente un
+  // ritorno una settimana dopo (se non già impostato) e impedisce di
+  // scegliere un ritorno precedente alla partenza: così il calendario
+  // della data di ritorno si apre già nel periodo giusto, invece che
+  // sul mese corrente.
+  (function () {
+    var startInput = document.getElementById("start_date");
+    var endInput = document.getElementById("end_date");
+    if (!startInput || !endInput) return;
+
+    function syncEndMin() {
+      if (!startInput.value) return;
+      endInput.min = startInput.value;
+      if (!endInput.value || endInput.value < startInput.value) {
+        var d = new Date(startInput.value + "T00:00:00");
+        d.setDate(d.getDate() + 7);
+        endInput.value = d.toISOString().slice(0, 10);
+      }
+    }
+
+    startInput.addEventListener("change", syncEndMin);
+    syncEndMin();
+  })();
+
+  // Ricerca dell'immagine di copertina "live": usa SEMPRE i valori
+  // attualmente scritti nel modulo (meta + termini di ricerca), non
+  // quelli già salvati — così funziona subito, senza dover prima
+  // cliccare "Salva viaggio" (bug reale corretto, vedi CHANGELOG).
+  // Aggiorna l'anteprima all'istante via AJAX, senza ricaricare la pagina.
+  (function () {
+    var btn = document.querySelector("[data-search-cover-btn]");
+    if (!btn) return;
+    var statusEl = document.querySelector("[data-search-cover-status]");
+    var destinationInput = document.getElementById("destination");
+    var termsInput = document.getElementById("cover_search_terms");
+    var tripId = btn.dataset.tripId;
+
+    btn.addEventListener("click", function () {
+      var destination = destinationInput ? destinationInput.value.trim() : "";
+      if (!destination) {
+        if (statusEl) statusEl.textContent = "Scrivi prima una meta.";
+        return;
+      }
+      btn.disabled = true;
+      if (statusEl) statusEl.textContent = "Cerco…";
+
+      window.apiFetch("/viaggi/" + tripId + "/aggiorna-copertina", {
+        method: "POST",
+        body: JSON.stringify({
+          destination: destination,
+          search_terms: termsInput ? termsInput.value.trim() : "",
+        }),
+      }).then(function (payload) {
+        btn.disabled = false;
+        if (!payload.ok) {
+          if (statusEl) statusEl.textContent = payload.error || "Errore durante la ricerca.";
+          return;
+        }
+        var wrap = document.querySelector("[data-cover-preview]");
+        var preview = wrap ? wrap.querySelector(".cover-preview") : null;
+        var hint = wrap ? wrap.querySelector(".cover-preview-hint") : null;
+        if (payload.found && wrap && preview) {
+          preview.style.backgroundImage = "url('" + payload.image_url + "')";
+          preview.style.backgroundPosition = payload.position;
+          wrap.style.display = "";
+          wrap.dataset.draggable = "false";
+          if (hint) hint.style.display = "none";
+          if (statusEl) statusEl.textContent = "Immagine trovata.";
+        } else {
+          if (statusEl) statusEl.textContent = "Nessuna immagine trovata per questi termini.";
+        }
+        setTimeout(function () {
+          if (statusEl) statusEl.textContent = "";
+        }, 3000);
+      });
+    });
+  })();
+
+  // Trascina per inquadrare l'immagine di copertina caricata a mano
+  // (stile "sposta per inquadrare" di Facebook), con Pointer Events
+  // così funziona anche su schermi touch.
+  (function () {
+    var wrap = document.querySelector("[data-cover-preview]");
+    if (!wrap || wrap.dataset.draggable !== "true") return;
+    var preview = wrap.querySelector(".cover-preview");
+    var tripId = wrap.dataset.tripId;
+    var dragging = false;
+    var startX, startY, startPosX, startPosY;
+
+    function currentPosition() {
+      var parts = getComputedStyle(preview).backgroundPosition.split(" ");
+      return {
+        x: parseFloat(parts[0]) || 50,
+        y: parseFloat(parts[1]) || 50,
+      };
+    }
+
+    function savePosition(x, y) {
+      window.apiFetch("/viaggi/" + tripId + "/copertina/posizione", {
+        method: "POST",
+        body: JSON.stringify({ x: x, y: y }),
+      });
+    }
+
+    wrap.addEventListener("pointerdown", function (e) {
+      dragging = true;
+      wrap.setPointerCapture(e.pointerId);
+      startX = e.clientX;
+      startY = e.clientY;
+      var pos = currentPosition();
+      startPosX = pos.x;
+      startPosY = pos.y;
+      wrap.classList.add("is-dragging");
+    });
+
+    wrap.addEventListener("pointermove", function (e) {
+      if (!dragging) return;
+      var rect = wrap.getBoundingClientRect();
+      // Trascinare verso sinistra sposta l'inquadratura verso destra
+      // (come si trascina una foto per centrarla): il segno è invertito.
+      var dx = ((e.clientX - startX) / rect.width) * -100;
+      var dy = ((e.clientY - startY) / rect.height) * -100;
+      var x = Math.max(0, Math.min(100, startPosX + dx));
+      var y = Math.max(0, Math.min(100, startPosY + dy));
+      preview.style.backgroundPosition = x.toFixed(1) + "% " + y.toFixed(1) + "%";
+    });
+
+    function endDrag(e) {
+      if (!dragging) return;
+      dragging = false;
+      wrap.classList.remove("is-dragging");
+      var pos = currentPosition();
+      savePosition(pos.x, pos.y);
+    }
+
+    wrap.addEventListener("pointerup", endDrag);
+    wrap.addEventListener("pointercancel", endDrag);
+  })();
+</script>
+{% endblock %}

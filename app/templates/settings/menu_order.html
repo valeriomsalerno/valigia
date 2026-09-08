@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Ordine del menu — {{ app_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Ordine del menu</h1>
+    <p>Solo visivo: cambia l'ordine in cui compaiono le voci, non modifica nulla di funzionale. Trascina dalla maniglia per riordinare.</p>
+  </div>
+</div>
+
+<form method="post" id="nav-order-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <div class="card" style="max-width:420px;">
+    <h3 style="font-size:15px; margin-bottom:12px;">Voci principali</h3>
+    <ul class="reorder-list item-list" data-reorder-list="top">
+      {% for key in top_order %}
+      <li data-key="{{ key }}">
+        <span class="drag-handle" title="Trascina per riordinare" aria-hidden="true"><i data-lucide="grip-vertical" class="icon"></i></span>
+        <span>{{ labels_top[key] }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div class="card mt-lg" style="max-width:420px;">
+    <h3 style="font-size:15px; margin-bottom:12px;">Sottomenu "Catalogo"</h3>
+    <ul class="reorder-list item-list" data-reorder-list="sub">
+      {% for key in sub_order %}
+      <li data-key="{{ key }}">
+        <span class="drag-handle" title="Trascina per riordinare" aria-hidden="true"><i data-lucide="grip-vertical" class="icon"></i></span>
+        <span>{{ labels_sub[key] }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div id="hidden-order-inputs"></div>
+
+  <div class="flex gap-sm" style="margin-top:20px;">
+    <button type="submit" class="btn btn-primary">Salva ordine</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}?v={{ app_version }}"></script>
+<script>
+  // initDragReorder è definita in dashboard.js: qui il salvataggio vero
+  // avviene al submit del form (non ad ogni trascinamento), quindi il
+  // callback onDrop non deve chiamare nessun endpoint — si limita a
+  // lasciare il nuovo ordine nel DOM, letto più sotto al submit.
+  document.addEventListener("DOMContentLoaded", () => {
+    initDragReorder('[data-reorder-list="top"]', "li", ".drag-handle", () => {});
+    initDragReorder('[data-reorder-list="sub"]', "li", ".drag-handle", () => {});
+  });
+
+  document.getElementById("nav-order-form").addEventListener("submit", () => {
+    const container = document.getElementById("hidden-order-inputs");
+    container.innerHTML = "";
+    document.querySelectorAll('[data-reorder-list="top"] li').forEach((li) => {
+      const input = document.createElement("input");
+      input.type = "hidden"; input.name = "top_order"; input.value = li.dataset.key;
+      container.appendChild(input);
+    });
+    document.querySelectorAll('[data-reorder-list="sub"] li').forEach((li) => {
+      const input = document.createElement("input");
+      input.type = "hidden"; input.name = "sub_order"; input.value = li.dataset.key;
+      container.appendChild(input);
+    });
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Viaggi — {{ app_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>I tuoi viaggi</h1>
+    <p>Ogni viaggio ha le proprie valigie e le proprie quantità. Include anche i viaggi condivisi con te da altri utenti.</p>
+  </div>
+  <a href="{{ url_for('trips.new') }}" class="btn btn-brass">
+    <i data-lucide="plus" class="icon"></i> Nuovo viaggio
+  </a>
+</div>
+
+{% if not trips_with_stats %}
+<div class="empty-state">
+  <i data-lucide="plane" class="icon"></i>
+  <h2>Nessun viaggio ancora</h2>
+  <p>Crea il tuo primo viaggio per iniziare a preparare la valigia.</p>
+  <a href="{{ url_for('trips.new') }}" class="btn btn-primary" style="margin-top:16px;">
+    <i data-lucide="plus" class="icon"></i> Crea il primo viaggio
+  </a>
+</div>
+{% endif %}
+
+<div class="stack-md">
+  {% for trip, stats in trips_with_stats %}
+  {% set is_owner = trip.owner_id == current_user.id %}
+  <div class="card flex-between" style="flex-wrap:wrap; gap:16px;
+       {% if trip.cover_image_url %}background-image: linear-gradient(90deg, var(--paper) 45%, rgba(255,253,248,0.55)), url('{{ trip.cover_image_url }}'); background-size: cover; background-position: {{ trip.cover_image_position }};{% endif %}">
+    <div>
+      <div class="flex gap-sm" style="margin-bottom:4px; flex-wrap:wrap;">
+        <h3 style="font-size:18px;">{{ trip.destination }}</h3>
+        {% if trip.is_ongoing %}<span class="status-pill status-pill--verde">In corso</span>
+        {% elif trip.is_upcoming %}<span class="status-pill status-pill--tutti">Tra {{ trip.days_to_departure }} giorni</span>
+        {% else %}<span class="status-pill status-pill--grigio">Concluso</span>{% endif %}
+        {% if not is_owner %}<span class="shared-badge"><i data-lucide="users" class="icon"></i> Di {{ trip.owner.display_name }}</span>{% endif %}
+      </div>
+      <p class="text-muted text-sm">
+        {{ trip.start_date | data_it }} → {{ trip.end_date | data_it }} · {{ trip.days }} giorni ·
+        {{ stats.percentuale_pronta }}% pronto ({{ stats.conservati }}/{{ stats.necessari }} tuoi oggetti, {{ stats.da_comprare }} da comprare)
+      </p>
+    </div>
+    <div class="flex gap-sm">
+      <a href="{{ url_for('trips.workspace', trip_id=trip.id) }}" class="btn btn-primary btn-sm"><i data-lucide="folder-open" class="icon"></i> Apri</a>
+      {% if is_owner %}
+      <a href="{{ url_for('trips.edit', trip_id=trip.id) }}" class="btn btn-overlay btn-sm"><i data-lucide="pencil" class="icon"></i></a>
+      <form method="post" action="{{ url_for('trips.delete', trip_id=trip.id) }}"
+            onsubmit="return confirm('Eliminare il viaggio &quot;{{ trip.destination }}&quot; e tutti i suoi dati? L\'azione non è reversibile.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-overlay btn-sm"><i data-lucide="trash-2" class="icon"></i></button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

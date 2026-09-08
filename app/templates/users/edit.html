@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Profilo — {{ app_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>{{ 'Il tuo profilo' if edited_user.id == current_user.id else 'Profilo di ' + edited_user.display_name }}</h1>
+    <p>Nome e cognome sono facoltativi e servono solo per come vieni mostrato nell'app. Il nickname è quello che usi per accedere.</p>
+  </div>
+  <a href="{{ url_for('users.list_users') if current_user.is_admin else url_for('dashboard.index') }}" class="btn btn-ghost btn-sm">
+    <i data-lucide="arrow-left" class="icon"></i> Indietro
+  </a>
+</div>
+
+<div class="card" style="max-width:480px;">
+  <form method="post" novalidate>
+    {{ form.hidden_tag() }}
+    <div class="form-grid">
+      <div class="form-row">
+        {{ form.full_name.label }}
+        {{ form.full_name(autofocus=true, placeholder="Es. Maria Rossi") }}
+      </div>
+      <div class="form-row">
+        {{ form.username.label }}
+        {{ form.username(autocapitalize="none", autocorrect="off", spellcheck="false") }}
+        <p class="hint">Usato per accedere: se lo cambi, ricordatelo per il prossimo login.</p>
+        {% for e in form.username.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+      </div>
+    </div>
+    <div class="flex gap-sm" style="margin-top:20px;">
+      {{ form.submit(class_="btn btn-primary") }}
+      <a href="{{ url_for('users.list_users') if current_user.is_admin else url_for('dashboard.index') }}" class="btn btn-ghost">Annulla</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

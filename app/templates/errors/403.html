@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Accesso negato — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="empty-state">
+  <i data-lucide="lock" class="icon"></i>
+  <h2>Non hai accesso a questa pagina</h2>
+  <p>Questo contenuto appartiene a un altro utente e non è stato condiviso con te.</p>
+  <a href="{{ url_for('dashboard.index') if current_user.is_authenticated else url_for('auth.login') }}" class="btn btn-primary" style="margin-top:16px;">
+    <i data-lucide="home" class="icon"></i> Torna alla dashboard
+  </a>
+</div>
+{% endblock %}

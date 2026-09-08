@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Oggetti — {{ app_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Catalogo oggetti</h1>
+    <p>Gli oggetti definiti qui compaiono automaticamente in tutti i viaggi.</p>
+  </div>
+  <a href="{{ url_for('catalog.new_item') }}" class="btn btn-brass">
+    <i data-lucide="plus" class="icon"></i> Nuovo oggetto
+  </a>
+</div>
+
+<div class="toolbar">
+  {% if show_archived %}
+  <a href="{{ url_for('catalog.items') }}" class="btn btn-ghost btn-sm">
+    <i data-lucide="box" class="icon"></i> Vedi catalogo attivo
+  </a>
+  {% else %}
+  <a href="{{ url_for('catalog.items', archiviati=1) }}" class="btn btn-ghost btn-sm">
+    <i data-lucide="archive" class="icon"></i> Vedi archiviati
+  </a>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('catalog.import_base') }}" style="margin-left:auto;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-ghost btn-sm" title="Aggiunge al tuo catalogo gli oggetti del catalogo di base che non hai ancora">
+      <i data-lucide="download" class="icon"></i> Importa catalogo di base
+    </button>
+  </form>
+
+  </div>
+{% if current_user.is_admin and has_custom_base %}
+<p class="hint" style="margin-top:6px;">Il catalogo di base è attualmente personalizzato. <a href="{{ url_for('settings.public_catalog') }}">Gestiscilo dalle impostazioni</a>.</p>
+{% endif %}
+
+{% if not grouped %}
+<div class="empty-state mt-lg">
+  <i data-lucide="box" class="icon"></i>
+  <h2>{{ 'Nessun oggetto archiviato' if show_archived else 'Nessun oggetto nel catalogo' }}</h2>
+  <p>{{ 'Gli oggetti archiviati compariranno qui.' if show_archived else 'Aggiungi il primo oggetto per iniziare.' }}</p>
+</div>
+{% else %}
+
+<!-- Schede per categoria: una sola visibile alla volta, senza ricaricare
+     la pagina (stesso sistema usato nel workspace di un viaggio). -->
+<div class="category-tabs mt-lg" data-category-tabs>
+  <button type="button" class="category-tab active" data-category-tab="all">
+    <i data-lucide="layout-grid" class="icon"></i> Tutti
+  </button>
+  {% for group in grouped %}
+  <button type="button" class="category-tab"
+          data-category-tab="{{ group.category.id }}" style="--cat-color: {{ group.category.color }};">
+    <i data-lucide="{{ group.category.icon }}" class="icon"></i>
+    {{ group.category.name }}
+    <span class="count">{{ group.catalog_items | length }}</span>
+  </button>
+  {% endfor %}
+</div>
+
+{% for group in grouped %}
+<div class="card category-panel" data-category-panel="{{ group.category.id }}" style="padding:0 8px 0 0; --cat-color: {{ group.category.color }}; overflow:hidden;">
+  <div class="category-panel-heading">
+    <i data-lucide="{{ group.category.icon }}" class="icon"></i> {{ group.category.name }}
+  </div>
+  <div class="table-scroll" data-column-style="{{ current_user.catalog_column_style }}">
+  <table class="simple-table catalog-items-table responsive-stack" data-resizable-table="catalog-items">
+    {% set saved_widths = current_user.get_column_widths('catalog-items') %}
+    <thead>
+      <tr>
+        <th style="width:30px;"></th>
+        <th{% if saved_widths %} style="width:{{ saved_widths[0] }}%;"{% endif %}>
+          <span class="col-text">Nome</span><span class="col-resize-handle" data-col-index="1"></span>
+        </th>
+        <th{% if saved_widths %} style="width:{{ saved_widths[1] }}%;"{% endif %}>
+          <span class="col-icon" title="Regola quantità"><i data-lucide="hash" class="icon"></i></span>
+          <span class="col-text">Regola quantità</span>
+          <span class="col-resize-handle" data-col-index="2"></span>
+        </th>
+        <th{% if saved_widths %} style="width:{{ saved_widths[2] }}%;"{% endif %}>
+          <span class="col-icon" title="Valigia predefinita"><i data-lucide="handbag" class="icon"></i></span>
+          <span class="col-text">Valigia predefinita</span>
+          <span class="col-resize-handle" data-col-index="3"></span>
+        </th>
+        <th{% if saved_widths %} style="width:{{ saved_widths[3] }}%;"{% endif %}>
+          <span class="col-icon" title="Peso"><i data-lucide="scale" class="icon"></i></span>
+          <span class="col-text">Peso</span>
+          <span class="col-resize-handle" data-col-index="4"></span>
+        </th>
+        <th{% if saved_widths %} style="width:{{ saved_widths[4] }}%;"{% endif %}></th>
+      </tr>
+    </thead>
+    <tbody data-reorderable-catalog data-category-id="{{ group.category.id }}">
+      {% for item in group.catalog_items %}
+      <tr data-item-id="{{ item.id }}">
+        <td class="drag-handle-cell"><span class="drag-handle" title="Trascina per riordinare" aria-hidden="true"><i data-lucide="grip-vertical" class="icon"></i></span></td>
+        <td>
+          <a href="{{ url_for('catalog.item_detail', item_id=item.id) }}" style="font-weight:600; text-decoration:none;">
+            {{ item.name }}
+          </a>
+          {% if item.has_variants %}
+          <i data-lucide="layers" class="icon" style="width:13px;height:13px; color:var(--brass-600); vertical-align:middle;" title="{{ item.variants | length }} modelli definiti"></i>
+          {% endif %}
+        </td>
+        <td class="text-muted" data-label="Regola quantità">
+          <span class="col-icon" title="{% if item.quantity_rule == 'fixed' %}Fissa ({{ item.fixed_qty }}){% elif item.quantity_rule == 'per_day' %}Per giorno (+{{ item.per_day_extra }}){% else %}Manuale{% endif %}">
+            <i data-lucide="{{ current_user.quantity_rule_icon(item.quantity_rule) }}" class="icon"></i>
+          </span>
+          <span class="col-text">
+            {% if item.quantity_rule == 'fixed' %}Fissa ({{ item.fixed_qty }})
+            {% elif item.quantity_rule == 'per_day' %}Per giorno (+{{ item.per_day_extra }})
+            {% else %}Manuale{% endif %}
+          </span>
+        </td>
+        <td class="text-muted" data-label="Valigia predefinita">
+          {% if item.default_luggage_type %}
+          <span class="col-icon" title="{{ item.default_luggage_type_label }}"><i data-lucide="{{ current_user.luggage_type_icon(item.default_luggage_type) }}" class="icon"></i></span>
+          <span class="col-text">{{ item.default_luggage_type_label }}</span>
+          {% else %}—{% endif %}
+        </td>
+        <td class="text-muted" data-label="Peso">{{ item.weight_grams | numero_it }}{{ ' g' if item.weight_grams }}</td>
+        <td style="text-align:right; white-space:nowrap;">
+          <a href="{{ url_for('catalog.edit_item', item_id=item.id) }}" class="btn btn-ghost btn-sm"><i data-lucide="pencil" class="icon"></i></a>
+          <form method="post" action="{{ url_for('catalog.toggle_archive_item', item_id=item.id) }}" style="display:inline;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-ghost btn-sm" title="{{ 'Ripristina' if show_archived else 'Archivia' }}">
+              <i data-lucide="{{ 'rotate-ccw' if show_archived else 'archive' }}" class="icon"></i>
+            </button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}?v={{ app_version }}"></script>
+{% endblock %}

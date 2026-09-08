@@ -1,0 +1,40 @@
+# =============================================================================
+# docker-compose.yml — Valigia
+# =============================================================================
+# Espone l'app SOLO su 127.0.0.1:4825 dell'host: è pensato per essere
+# raggiunto dall'esterno tramite un Cloudflare Tunnel configurato per
+# puntare a http://127.0.0.1:4825 (nessuna porta va aperta manualmente
+# sul router: è cloudflared, in esecuzione sull'host, a fare da tramite).
+#
+# Avvio:
+#   docker compose up -d --build
+#
+# Log:
+#   docker compose logs -f
+#
+# Aggiornamento a una nuova versione del codice:
+#   docker compose up -d --build
+#   (i dati in ./data non vengono toccati)
+# =============================================================================
+
+services:
+  valigia:
+    build: .
+    container_name: valigia
+    restart: unless-stopped
+    ports:
+      # Solo localhost: cloudflared sull'host si collega qui.
+      - "127.0.0.1:4825:8000"
+    volumes:
+      # Database SQLite persistente: sopravvive a rebuild/riavvii.
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      - VALIGIA_ENV=production
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/login')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

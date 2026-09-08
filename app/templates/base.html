@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+  <title>{% block title %}{{ app_name }}{% endblock %}</title>
+
+  {% if current_user.is_authenticated %}
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  {% endif %}
+
+  <!-- Web App installabile su iOS/iPadOS ("Aggiungi a Home") -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="{{ app_name }}">
+  <meta name="theme-color" content="#0F1C30">
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
+  <link rel="icon" href="{{ url_for('static', filename='icons/favicon.png') }}">
+
+  <!-- Font: Fraunces (titoli) + Inter (corpo/UI) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ app_version }}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+<div class="app-shell">
+
+  {% if current_user.is_authenticated %}
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a href="{{ url_for('dashboard.index') }}" class="brand">
+        <i data-lucide="plane" class="icon"></i> {{ app_name }}
+      </a>
+      <span style="position:relative;">
+        <button type="button" class="offline-badge" data-offline-badge-toggle style="display:none;"></button>
+        <span class="offline-badge-detail" data-offline-badge-detail></span>
+      </span>
+
+      <button type="button" class="nav-toggle" data-nav-toggle aria-label="Apri il menu">
+        <i data-lucide="menu" class="icon"></i>
+      </button>
+
+      <nav class="topnav" data-topnav>
+        {% macro nav_home() %}
+        <a href="{{ url_for('dashboard.index') }}" class="{{ 'active' if request.endpoint == 'dashboard.index' }}">
+          <i data-lucide="layout-grid" class="icon"></i> Home
+        </a>
+        {% endmacro %}
+
+        {% macro nav_catalogo() %}
+        <div class="dropdown" data-dropdown>
+          <button type="button" class="dropdown-toggle" data-dropdown-toggle>
+            <i data-lucide="library-big" class="icon"></i> Catalogo <i data-lucide="chevron-down" class="icon" style="width:13px;height:13px;"></i>
+          </button>
+          <div class="dropdown-menu" data-dropdown-menu>
+            {% for sub in current_user.catalog_submenu_order %}
+              {% if sub == "oggetti" %}
+              <a href="{{ url_for('catalog.items') }}"><i data-lucide="box" class="icon"></i> Oggetti</a>
+              {% elif sub == "categorie" %}
+              <a href="{{ url_for('catalog.categories') }}"><i data-lucide="shapes" class="icon"></i> Categorie</a>
+              {% elif sub == "valigie" %}
+              <a href="{{ url_for('luggage.list_luggage') }}"><i data-lucide="briefcase" class="icon"></i> Valigie</a>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+        {% endmacro %}
+
+        {% macro nav_viaggi() %}
+        <a href="{{ url_for('trips.list_trips') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('trips.') }}">
+          <i data-lucide="plane" class="icon"></i> Viaggi
+        </a>
+        {% if nav_nearest_trip %}
+        <a href="{{ url_for('trips.workspace', trip_id=nav_nearest_trip.id) }}" title="{{ nav_nearest_trip.destination }}">
+          <i data-lucide="calendar-clock" class="icon"></i> Prossimo viaggio
+        </a>
+        {% endif %}
+        {% endmacro %}
+
+        {% macro nav_spesa() %}
+        <a href="{{ url_for('dashboard.shopping_index') }}" class="{{ 'active' if request.endpoint == 'dashboard.shopping_index' }}">
+          <i data-lucide="shopping-cart" class="icon"></i> Lista della spesa
+          <span class="badge-count" data-nav-shopping-badge style="{{ '' if nav_shopping_count else 'display:none;' }}">{{ nav_shopping_count or '' }}</span>
+        </a>
+        {% endmacro %}
+
+        {% set nav_macros = {
+          "home": nav_home, "catalogo": nav_catalogo, "viaggi": nav_viaggi,
+          "spesa": nav_spesa,
+        } %}
+        {% for key in current_user.nav_order if key != "impostazioni" %}
+          {{ nav_macros[key]() }}
+        {% endfor %}
+
+      </nav>
+
+      <div class="dropdown user-menu" data-dropdown>
+        <button type="button" class="dropdown-toggle" data-dropdown-toggle>
+          <i data-lucide="user-round" class="icon"></i> <span class="user-name-label">{{ current_user.display_name }}</span>
+        </button>
+        <div class="dropdown-menu" data-dropdown-menu>
+          <a href="{{ url_for('users.edit_user', user_id=current_user.id) }}"><i data-lucide="user-cog" class="icon"></i> Profilo</a>
+
+          <button type="button" class="dropdown-submenu-toggle" data-submenu-toggle>
+            <i data-lucide="settings" class="icon"></i> Impostazioni <i data-lucide="chevron-right" class="icon submenu-chevron" style="width:13px;height:13px;"></i>
+          </button>
+          <div class="dropdown-submenu" data-submenu>
+            <a href="{{ url_for('auth.change_password') }}"><i data-lucide="key-round" class="icon"></i> Cambia password</a>
+            <a href="{{ url_for('settings.catalog_prefs') }}"><i data-lucide="palette" class="icon"></i> Preferenze catalogo</a>
+            <a href="{{ url_for('settings.nav_order') }}"><i data-lucide="arrow-up-down" class="icon"></i> Ordine del menu</a>
+            {% if current_user.is_admin %}
+            <a href="{{ url_for('users.list_users') }}"><i data-lucide="users" class="icon"></i> Utenti</a>
+            <a href="{{ url_for('backup.index') }}"><i data-lucide="database-backup" class="icon"></i> Backup</a>
+            <a href="{{ url_for('settings.public_catalog') }}"><i data-lucide="globe" class="icon"></i> Configura catalogo pubblico</a>
+            <a href="{{ url_for('settings.resources') }}"><i data-lucide="activity" class="icon"></i> Statistiche</a>
+            {% endif %}
+          </div>
+
+          <a href="{{ url_for('auth.logout') }}"><i data-lucide="log-out" class="icon"></i> Esci</a>
+        </div>
+      </div>
+    </div>
+  </header>
+  {% endif %}
+
+  <main class="page-content">
+    <div class="container">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flashes">
+          {% for category, message in messages %}
+          <div class="flash flash-{{ category }}">
+            <i data-lucide="{{ 'check-circle' if category == 'success' else ('alert-circle' if category == 'error' else 'info') }}" class="icon"></i>
+            <span>{{ message }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      {% endwith %}
+
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+
+  <footer class="app-footer">
+    <div class="container">
+      <span>{{ app_name }} v{{ app_version }}</span>
+    </div>
+  </footer>
+</div>
+
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<script src="{{ url_for('static', filename='js/app.js') }}?v={{ app_version }}"></script>
+<script src="{{ url_for('static', filename='js/offline.js') }}?v={{ app_version }}"></script>
+<script>
+  // Registra il service worker per la consultazione offline (vedi
+  // _register_service_worker in app/__init__.py). Va servito dalla
+  // radice del sito ("/sw.js"), non da /static/, altrimenti il suo
+  // controllo ("scope") resterebbe limitato alla sola cartella statica.
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("/sw.js").catch(() => {
+        // Non critico: l'app resta comunque utilizzabile online,
+        // semplicemente senza consultazione offline delle pagine.
+      });
+    });
+  }
+</script>
+{% block extra_scripts %}{% endblock %}
+</body>
+</html>

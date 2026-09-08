@@ -1,0 +1,22 @@
+# Ambienti virtuali e dipendenze
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Segreti e configurazione locale
+.env
+
+# Database e dati persistenti (montati come volume in Docker)
+data/*.db
+data/*.sqlite3
+
+# Test e cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/

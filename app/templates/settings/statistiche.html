@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Statistiche — {{ app_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1><i data-lucide="activity" class="icon"></i> Statistiche del sistema</h1>
+    <p>Solo per l'amministratore: quanto sta consumando l'app in questo momento.</p>
+  </div>
+</div>
+
+{% if not resources %}
+<div class="empty-state mt-lg">
+  <i data-lucide="activity" class="icon"></i>
+  <h2>Statistiche non disponibili</h2>
+  <p>Non è stato possibile calcolarle in questo ambiente.</p>
+</div>
+{% else %}
+
+<div class="card mt-lg">
+  <div class="resource-grid">
+    <div class="resource-stat">
+      <span class="resource-label">Memoria (questo processo)</span>
+      <span class="resource-value">{{ resources.process_memory_mb | numero_it(0) }} MB</span>
+    </div>
+    <div class="resource-stat">
+      <span class="resource-label">CPU (questo processo)</span>
+      <span class="resource-value">{{ resources.process_cpu_percent | numero_it(1) }}%</span>
+    </div>
+    <div class="resource-stat">
+      <span class="resource-label">Thread attivi</span>
+      <span class="resource-value">{{ resources.process_threads }}</span>
+    </div>
+    <div class="resource-stat">
+      <span class="resource-label">Attivo da</span>
+      <span class="resource-value">{{ resources.process_uptime }}</span>
+    </div>
+  </div>
+
+  <div class="resource-bars">
+    <div class="resource-bar-row">
+      <div class="resource-bar-label">
+        <span>CPU macchina ({{ resources.system_cpu_count }} core)</span>
+        <span>{{ resources.system_cpu_percent | numero_it(1) }}%</span>
+      </div>
+      <div class="resource-bar-track"><div class="resource-bar-fill" style="width:{{ resources.system_cpu_percent }}%;"></div></div>
+    </div>
+    <div class="resource-bar-row">
+      <div class="resource-bar-label">
+        <span>Memoria macchina</span>
+        <span>{{ resources.system_memory_used_mb | numero_it(0) }} / {{ resources.system_memory_total_mb | numero_it(0) }} MB ({{ resources.system_memory_percent | numero_it(1) }}%)</span>
+      </div>
+      <div class="resource-bar-track"><div class="resource-bar-fill" style="width:{{ resources.system_memory_percent }}%;"></div></div>
+    </div>
+    <div class="resource-bar-row">
+      <div class="resource-bar-label">
+        <span>Disco (volume dati)</span>
+        <span>{{ resources.disk_used_gb | numero_it(1) }} / {{ resources.disk_total_gb | numero_it(1) }} GB ({{ resources.disk_percent | numero_it(1) }}%)</span>
+      </div>
+      <div class="resource-bar-track"><div class="resource-bar-fill {{ 'is-warn' if resources.disk_percent > 80 }}" style="width:{{ resources.disk_percent }}%;"></div></div>
+    </div>
+  </div>
+
+  <p class="hint" style="margin-top:14px;">
+    Cartella dati (database + backup di sicurezza): {{ resources.data_dir_mb | numero_it(1) }} MB.
+    Con più worker (vedi <code>entrypoint.sh</code>), questi numeri riflettono solo il processo che ha risposto a questa richiesta, non il totale di tutti i worker insieme.
+  </p>
+</div>
+{% endif %}
+{% endblock %}

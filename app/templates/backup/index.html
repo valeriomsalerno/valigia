@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Backup — {{ app_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1><i data-lucide="database-backup" class="icon"></i> Backup e ripristino</h1>
+    <p>Il file esportato contiene TUTTO: utenti, cataloghi, viaggi, valigie. È l'unico file che ti serve per un backup completo.</p>
+  </div>
+</div>
+
+{% if not db_available %}
+<div class="empty-state">
+  <i data-lucide="database" class="icon"></i>
+  <h2>Backup non disponibile</h2>
+  <p>Questo ambiente non usa un database su file (es. ambiente di test).</p>
+</div>
+{% else %}
+
+<div class="two-col">
+  <div class="card">
+    <h3 style="font-size:15px; margin-bottom:6px;">Esporta un backup</h3>
+    <p class="text-sm text-muted" style="margin-bottom:16px;">
+      Database attuale: {{ size_mb }} MB.
+    </p>
+    <form method="post" action="{{ url_for('backup.export_backup') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-primary">
+        <i data-lucide="download" class="icon"></i> Scarica backup ora
+      </button>
+    </form>
+    <p class="hint" style="margin-top:14px;">
+      Conserva il file scaricato in un posto sicuro (es. Google Drive, iCloud). Per backup automatici periodici,
+      vedi la sezione "Backup automatici" nel README del progetto.
+    </p>
+  </div>
+
+  <div class="card">
+    <h3 style="font-size:15px; margin-bottom:6px; color:var(--red);">Ripristina da backup</h3>
+    <p class="text-sm text-muted" style="margin-bottom:16px;">
+      Sostituisce TUTTI i dati attuali con quelli del file caricato. Il database attuale viene comunque
+      salvato automaticamente prima, per sicurezza.
+    </p>
+    <form method="post" action="{{ url_for('backup.restore_backup') }}" enctype="multipart/form-data"
+          onsubmit="return confirm('Sei sicuro? Tutti i dati attuali (di tutti gli utenti) verranno sostituiti con quelli del file caricato.');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="form-row" style="margin-bottom:14px;">
+        <input type="file" name="backup_file" accept=".db" required>
+      </div>
+      <button type="submit" class="btn btn-danger">
+        <i data-lucide="upload" class="icon"></i> Ripristina questo file
+      </button>
+    </form>
+  </div>
+</div>
+
+{% if safety_backups %}
+<div class="card mt-lg" style="padding:0;">
+  <div style="padding:18px 22px 0;"><h3 style="font-size:15px;">Copie di sicurezza automatiche</h3>
+    <p class="text-sm text-muted">Create automaticamente prima di ogni ripristino, conservate nella cartella <code>data/backups/</code> sul server.</p>
+  </div>
+  <table class="simple-table responsive-stack" style="margin-top:8px;">
+    <thead><tr><th>File</th><th>Creato</th><th style="text-align:right;">Dimensione</th></tr></thead>
+    <tbody>
+      {% for b in safety_backups %}
+      <tr>
+        <td class="text-muted">{{ b.name }}</td>
+        <td class="text-muted" data-label="Creato">{{ b.created.strftime('%d/%m/%Y %H:%M') }}</td>
+        <td style="text-align:right;" data-label="Dimensione">{{ b.size_mb }} MB</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}

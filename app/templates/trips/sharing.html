@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Condividi "{{ trip.destination }}" — {{ app_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Condividi "{{ trip.destination }}"</h1>
+    <p>Gli utenti con cui condividi possono vedere e spuntare i propri oggetti di questo viaggio (ognuno ha una lista personale) e vedere/gestire la lista della spesa condivisa, ma non modificarne data, meta o bagagli.</p>
+  </div>
+  <a href="{{ url_for('trips.workspace', trip_id=trip.id) }}" class="btn btn-ghost btn-sm">
+    <i data-lucide="arrow-left" class="icon"></i> Torna al viaggio
+  </a>
+</div>
+
+<div class="card" style="padding:0; margin-bottom:22px; max-width:520px;">
+  {% if trip.shares %}
+  <table class="simple-table responsive-stack">
+    <thead><tr><th>Condiviso con</th><th></th></tr></thead>
+    <tbody>
+      {% for share in trip.shares %}
+      <tr>
+        <td style="font-weight:600;">{{ share.user.display_name }}</td>
+        <td style="text-align:right;">
+          <form method="post" action="{{ url_for('trips.remove_sharing', trip_id=trip.id, share_id=share.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-ghost btn-sm"><i data-lucide="x" class="icon"></i> Rimuovi</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state"><p>Non ancora condiviso con nessuno.</p></div>
+  {% endif %}
+</div>
+
+{% if form.user_id.choices %}
+<div class="card" style="max-width:480px;">
+  <h3 style="font-size:15px; margin-bottom:14px;">Condividi con un altro utente</h3>
+  <form method="post" novalidate>
+    {{ form.hidden_tag() }}
+    <div class="form-grid">
+      <div class="form-row">
+        {{ form.user_id.label }}
+        {{ form.user_id() }}
+      </div>
+    </div>
+    {{ form.submit(class_="btn btn-primary", style="margin-top:16px;") }}
+  </form>
+</div>
+{% else %}
+<p class="text-muted text-sm">Non ci sono altri utenti disponibili con cui condividere.
+  {% if current_user.is_admin %}<a href="{{ url_for('users.new_user') }}">Crea un nuovo utente</a>.{% endif %}
+</p>
+{% endif %}
+{% endblock %}

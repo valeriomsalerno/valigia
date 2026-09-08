@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Preferenze catalogo — {{ app_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Preferenze del catalogo</h1>
+    <p>Come mostrare le colonne "Regola quantità", "Valigia predefinita" e "Peso" nella pagina del catalogo.</p>
+  </div>
+</div>
+
+<div class="card" style="max-width:560px;">
+  <form method="post" novalidate>
+    {{ form.hidden_tag() }}
+    <div class="form-grid">
+      <div class="form-row">
+        {{ form.column_style.label }}
+        {{ form.column_style() }}
+        <p class="hint">"Automatico" mostra icone su schermi stretti (mobile) e testo su schermi larghi (desktop).</p>
+      </div>
+
+      <h3 style="font-size:14px; margin:8px 0 0;">Icona per ciascuna regola quantità</h3>
+      <p class="hint" style="margin-top:-4px;">Nome di un'icona da <a href="https://lucide.dev/icons" target="_blank" rel="noopener">lucide.dev</a>, a tua scelta.</p>
+      <div class="two-col">
+        <div class="form-row">
+          {{ form.icon_fixed.label }}
+          {{ form.icon_fixed(placeholder="hash", **{"data-icon-preview": "preview-fixed"}) }}
+          <i data-lucide="{{ form.icon_fixed.data or 'hash' }}" class="icon" id="preview-fixed" style="margin-top:6px;"></i>
+        </div>
+        <div class="form-row">
+          {{ form.icon_per_day.label }}
+          {{ form.icon_per_day(placeholder="repeat", **{"data-icon-preview": "preview-per_day"}) }}
+          <i data-lucide="{{ form.icon_per_day.data or 'repeat' }}" class="icon" id="preview-per_day" style="margin-top:6px;"></i>
+        </div>
+      </div>
+      <div class="form-row">
+        {{ form.icon_manual.label }}
+        {{ form.icon_manual(placeholder="hand", **{"data-icon-preview": "preview-manual"}) }}
+        <i data-lucide="{{ form.icon_manual.data or 'hand' }}" class="icon" id="preview-manual" style="margin-top:6px;"></i>
+      </div>
+
+      <h3 style="font-size:14px; margin:8px 0 0;">Icona per ciascuna tipologia di valigia</h3>
+      <div class="two-col">
+        <div class="form-row">
+          {{ form.icon_cabina.label }}
+          {{ form.icon_cabina(placeholder="briefcase", **{"data-icon-preview": "preview-cabina"}) }}
+          <i data-lucide="{{ form.icon_cabina.data or 'briefcase' }}" class="icon" id="preview-cabina" style="margin-top:6px;"></i>
+        </div>
+        <div class="form-row">
+          {{ form.icon_stiva.label }}
+          {{ form.icon_stiva(placeholder="package", **{"data-icon-preview": "preview-stiva"}) }}
+          <i data-lucide="{{ form.icon_stiva.data or 'package' }}" class="icon" id="preview-stiva" style="margin-top:6px;"></i>
+        </div>
+      </div>
+      <div class="form-row">
+        {{ form.icon_zaino.label }}
+        {{ form.icon_zaino(placeholder="backpack", **{"data-icon-preview": "preview-zaino"}) }}
+        <i data-lucide="{{ form.icon_zaino.data or 'backpack' }}" class="icon" id="preview-zaino" style="margin-top:6px;"></i>
+      </div>
+    </div>
+
+    <div class="flex gap-sm" style="margin-top:20px;">
+      {{ form.submit(class_="btn btn-primary") }}
+      <a href="{{ url_for('catalog.items') }}" class="btn btn-ghost">Annulla</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  // Anteprima dal vivo dell'icona scritta in ciascun campo, mentre si digita.
+  document.querySelectorAll("[data-icon-preview]").forEach((input) => {
+    const preview = document.getElementById(input.dataset.iconPreview);
+    if (!preview) return;
+    input.addEventListener("input", () => {
+      const name = input.value.trim();
+      if (!name) return;
+      preview.setAttribute("data-lucide", name);
+      preview.innerHTML = "";
+      if (window.lucide) window.lucide.createIcons();
+    });
+  });
+</script>
+{% endblock %}

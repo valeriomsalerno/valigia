@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}{{ item.name }} — {{ app_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>{{ item.name }}</h1>
+    <p>
+      <span class="color-dot" style="background:{{ item.category.color }};"></span>
+      {{ item.category.name }}
+      {% if item.archived %}<span class="status-pill status-pill--grigio" style="margin-left:8px;">Archiviato</span>{% endif %}
+    </p>
+  </div>
+  <div class="flex gap-sm">
+    {% if from_trip %}
+    <a href="{{ url_for('trips.workspace', trip_id=from_trip.id) }}" class="btn btn-ghost btn-sm">
+      <i data-lucide="arrow-left" class="icon"></i> Torna al viaggio
+    </a>
+    {% endif %}
+    <a href="{{ url_for('catalog.edit_item', item_id=item.id) }}" class="btn btn-ghost btn-sm">
+      <i data-lucide="pencil" class="icon"></i> Modifica
+    </a>
+    <a href="{{ url_for('catalog.items') }}" class="btn btn-ghost btn-sm">
+      <i data-lucide="package" class="icon"></i> Catalogo
+    </a>
+  </div>
+</div>
+
+<div class="two-col">
+  <div class="card">
+    <h3 style="font-size:15px; margin-bottom:14px;">Automazione quantità</h3>
+    <div class="stack-sm">
+      <div class="flex-between"><span class="text-sm text-muted">Regola</span>
+        <span style="font-weight:600;">
+          {% if item.quantity_rule == 'fixed' %}Fissa
+          {% elif item.quantity_rule == 'per_day' %}Per giorno
+          {% else %}Manuale{% endif %}
+        </span>
+      </div>
+      {% if item.quantity_rule == 'fixed' %}
+      <div class="flex-between"><span class="text-sm text-muted">Quantità</span><span style="font-weight:600;">{{ item.fixed_qty }}</span></div>
+      {% elif item.quantity_rule == 'per_day' %}
+      <div class="flex-between"><span class="text-sm text-muted">Extra oltre i giorni</span><span style="font-weight:600;">+{{ item.per_day_extra }}</span></div>
+      {% endif %}
+      <div class="flex-between"><span class="text-sm text-muted">Tipologia di valigia predefinita</span>
+        <span style="font-weight:600;">{{ {'cabina':'Cabina','stiva':'Stiva','zaino':'Zaino'}.get(item.default_luggage_type, '—') }}</span>
+      </div>
+      <div class="flex-between"><span class="text-sm text-muted">Peso di una unità</span>
+        <span style="font-weight:600;">{{ item.weight_grams | numero_it }}{{ ' g' if item.weight_grams }}</span>
+      </div>
+    </div>
+    {% if item.notes %}
+    <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--line);">
+      <p class="text-sm text-muted" style="margin-bottom:4px;">Note</p>
+      <p style="margin:0;">{{ item.notes }}</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3 style="font-size:15px; margin-bottom:14px;">Zona pericolosa</h3>
+    <p class="text-sm text-muted" style="margin-bottom:14px;">
+      {% if item.trip_items %}
+      Questo oggetto è presente in {{ item.trip_items | length }} viaggi: puoi archiviarlo per nasconderlo
+      dal catalogo attivo, ma non eliminarlo definitivamente finché resta collegato a dei viaggi.
+      {% else %}
+      Questo oggetto non è ancora stato usato in nessun viaggio: puoi eliminarlo definitivamente.
+      {% endif %}
+    </p>
+    <div class="flex gap-sm" style="flex-wrap:wrap;">
+      <form method="post" action="{{ url_for('catalog.toggle_archive_item', item_id=item.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-ghost btn-sm">
+          <i data-lucide="{{ 'rotate-ccw' if item.archived else 'archive' }}" class="icon"></i>
+          {{ 'Ripristina nel catalogo' if item.archived else 'Archivia oggetto' }}
+        </button>
+      </form>
+      <form method="post" action="{{ url_for('catalog.delete_item', item_id=item.id) }}"
+            onsubmit="return confirm('Eliminare definitivamente questo oggetto? L\'azione non è reversibile.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-danger btn-sm" {{ 'disabled' if item.trip_items }}>
+          <i data-lucide="trash-2" class="icon"></i> Elimina definitivamente
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-lg">
+  <div class="flex-between" style="margin-bottom:14px;">
+    <h3 style="font-size:15px;">Modelli</h3>
+    <span class="text-sm text-muted">Facoltativo — utile per oggetti con varianti diverse (es. camicie, pantaloni)</span>
+  </div>
+  <p class="text-sm text-muted" style="margin-top:-8px; margin-bottom:14px;">
+    Se definisci almeno un modello, preparare questo oggetto per un viaggio chiederà quanti ne porti di CIASCUN modello (invece del generico conteggio per valigia), usando il peso specifico di ognuno.
+  </p>
+
+  {% if item.variants %}
+  <table class="simple-table responsive-stack" style="margin-bottom:16px;">
+    <thead><tr><th>Modello</th><th>Peso</th><th>Posseduti</th><th></th></tr></thead>
+    <tbody>
+      {% for v in item.variants %}
+      <tr>
+        <td style="font-weight:600;">{{ v.description }}</td>
+        <td class="text-muted" data-label="Peso">{{ v.weight_grams | numero_it }}{{ ' g' if v.weight_grams }}</td>
+        <td class="text-muted" data-label="Posseduti">{{ v.owned_qty }}</td>
+        <td style="text-align:right; white-space:nowrap;">
+          <a href="{{ url_for('catalog.edit_variant', item_id=item.id, variant_id=v.id) }}" class="btn btn-ghost btn-sm"><i data-lucide="pencil" class="icon"></i></a>
+          <form method="post" action="{{ url_for('catalog.delete_variant', item_id=item.id, variant_id=v.id) }}" style="display:inline;"
+                onsubmit="return confirm('Eliminare il modello \'{{ v.description }}\'? Le quantità già specificate per i viaggi andranno perse.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-ghost btn-sm"><i data-lucide="trash-2" class="icon"></i></button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('catalog.add_variant', item_id=item.id) }}" class="flex gap-sm" style="flex-wrap:wrap; align-items:flex-end;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-row" style="flex:2; min-width:180px; margin:0;">
+      {{ variant_form.description.label }}
+      {{ variant_form.description(placeholder="Es. Camicia bianca elegante") }}
+    </div>
+    <div class="form-row" style="flex:1; min-width:120px; margin:0;">
+      {{ variant_form.weight_grams.label }}
+      {{ variant_form.weight_grams() }}
+    </div>
+    <div class="form-row" style="flex:1; min-width:100px; margin:0;">
+      {{ variant_form.owned_qty.label }}
+      {{ variant_form.owned_qty() }}
+    </div>
+    <button type="submit" class="btn btn-brass btn-sm"><i data-lucide="plus" class="icon"></i> Aggiungi modello</button>
+  </form>
+</div>
+
+<div class="card mt-lg" style="padding:0;">
+  <div style="padding:18px 22px 0;"><h3 style="font-size:15px;">Storico nei viaggi</h3></div>
+  {% if history %}
+  <table class="simple-table responsive-stack" style="margin-top:8px;">
+    <thead>
+      <tr><th>Viaggio</th><th>Periodo</th><th>Stato</th><th style="text-align:right;">Quantità</th></tr>
+    </thead>
+    <tbody>
+      {% for h in history %}
+      <tr>
+        <td>{{ h.trip.destination }}</td>
+        <td class="text-muted" data-label="Periodo">{{ h.trip.start_date | data_it }} — {{ h.trip.end_date | data_it }}</td>
+        <td data-label="Stato">
+          <span class="status-pill status-pill--{{ 'verde' if h.status == 'conservato' else ('rosso' if h.status == 'da_comprare' else ('giallo' if h.status == 'da_preparare' else 'grigio')) }}">
+            {{ h.status_label }}
+          </span>
+        </td>
+        <td style="text-align:right;">{{ h.total_qty }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state"><p>Non ancora usato in nessun viaggio.</p></div>
+  {% endif %}
+</div>
+{% endblock %}

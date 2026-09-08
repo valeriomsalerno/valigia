@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Modifica modello — {{ item.name }} — {{ app_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Modifica modello</h1>
+    <p>Per l'oggetto "{{ item.name }}".</p>
+  </div>
+  <a href="{{ url_for('catalog.item_detail', item_id=item.id) }}" class="btn btn-ghost btn-sm">
+    <i data-lucide="arrow-left" class="icon"></i> Torna all'oggetto
+  </a>
+</div>
+
+<div class="card" style="max-width:480px;">
+  <form method="post" novalidate>
+    {{ form.hidden_tag() }}
+    <div class="form-grid">
+      <div class="form-row">
+        {{ form.description.label }}
+        {{ form.description(autofocus=true) }}
+        {% for e in form.description.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+      </div>
+      <div class="form-row">
+        {{ form.weight_grams.label }}
+        {{ form.weight_grams() }}
+        {% for e in form.weight_grams.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+      </div>
+      <div class="form-row">
+        {{ form.owned_qty.label }}
+        {{ form.owned_qty() }}
+        {% for e in form.owned_qty.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+      </div>
+    </div>
+    <div class="flex gap-sm" style="margin-top:20px;">
+      {{ form.submit(class_="btn btn-primary") }}
+      <a href="{{ url_for('catalog.item_detail', item_id=item.id) }}" class="btn btn-ghost">Annulla</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

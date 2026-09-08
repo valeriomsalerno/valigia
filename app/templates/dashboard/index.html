@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}{{ app_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Ciao, {{ current_user.display_name }}</h1>
+    <p>Ecco un riepilogo dei tuoi viaggi, del tuo catalogo e delle tue valigie.</p>
+  </div>
+  <div class="flex gap-sm">
+    <button type="button" class="btn btn-ghost" data-prepare-offline-btn title="Salva i tuoi viaggi e le pagine principali per poterli consultare e modificare anche senza connessione">
+      <i data-lucide="cloud-download" class="icon"></i> Prepara per l'uso offline
+    </button>
+    <a href="{{ url_for('trips.new') }}" class="btn btn-brass">
+      <i data-lucide="plus" class="icon"></i> Nuovo viaggio
+    </a>
+  </div>
+</div>
+<p class="text-sm text-muted" data-prepare-offline-status style="text-align:right; margin-top:-8px;"></p>
+
+<div class="home-grid">
+
+  <!-- ========================= Viaggi futuri (largo) ========================= -->
+  <div class="card home-block-wide">
+    <div class="block-header">
+      <h2><i data-lucide="plane-takeoff" class="icon"></i> Viaggi futuri</h2>
+      <a href="{{ url_for('trips.list_trips') }}" class="btn btn-ghost btn-sm">Vedi tutti</a>
+    </div>
+
+    {% if not upcoming_with_stats %}
+    <div class="empty-state" style="padding:30px 20px;">
+      <i data-lucide="plane" class="icon"></i>
+      <h2>Nessun viaggio in programma</h2>
+      <p>Crea un viaggio per iniziare a preparare la valigia.</p>
+    </div>
+    {% else %}
+    <div>
+      {% for trip, stats in upcoming_with_stats %}
+      <a href="{{ url_for('trips.workspace', trip_id=trip.id) }}" class="trip-card-row">
+        <div class="trip-card-thumb" {% if trip.cover_image_url %}style="background-image:url('{{ trip.cover_image_url }}'); background-position: {{ trip.cover_image_position }};"{% endif %}>
+          {% if not trip.cover_image_url %}<i data-lucide="image" class="icon" style="width:22px;height:22px; opacity:0.4;"></i>{% endif %}
+        </div>
+        <div class="trip-card-info">
+          <h3>{{ trip.destination }}{{ ' · di %s' % trip.owner.display_name if trip.owner_id != current_user.id }}</h3>
+          <div class="trip-card-meta">
+            <span>{{ trip.start_date | data_it }} → {{ trip.end_date | data_it }}</span>
+            {% if trip.is_ongoing %}<span class="status-pill status-pill--verde">In corso</span>
+            {% else %}<span>· tra {{ trip.days_to_departure }} giorni</span>{% endif %}
+            {% if stats.da_comprare %}<span class="status-pill status-pill--rosso">{{ stats.da_comprare }} da comprare</span>{% endif %}
+          </div>
+        </div>
+        <div class="trip-card-progress">{{ stats.percentuale_pronta }}%<br><span class="text-muted" style="font-weight:400;">pronto</span></div>
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ==================== Lista della spesa / Catalogo / Valigie (un terzo ciascuna) ==================== -->
+  <div class="home-row-three">
+  <div class="card">
+    <div class="block-header">
+      <h2><i data-lucide="shopping-cart" class="icon"></i> Lista della spesa</h2>
+      <a href="{{ url_for('dashboard.shopping_index') }}" class="btn btn-ghost btn-sm">Apri</a>
+    </div>
+    {% if nav_shopping_count %}
+    <div class="mini-stat-list">
+      <div class="mini-stat-row"><span>Unità da comprare</span><span class="n">{{ nav_shopping_count }}</span></div>
+    </div>
+    <p class="text-muted text-sm" style="margin-top:10px;">Su uno o più viaggi.</p>
+    {% else %}
+    <p class="text-muted text-sm">Niente da comprare al momento.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="block-header">
+      <h2><i data-lucide="package" class="icon"></i> Catalogo</h2>
+      <a href="{{ url_for('catalog.items') }}" class="btn btn-ghost btn-sm">Apri</a>
+    </div>
+    <div class="mini-stat-list">
+      <div class="mini-stat-row"><span>Categorie</span><span class="n">{{ catalog_summary.categorie }}</span></div>
+      <div class="mini-stat-row"><span>Oggetti attivi</span><span class="n">{{ catalog_summary.oggetti }}</span></div>
+    </div>
+    <div class="flex gap-sm" style="margin-top:16px; flex-wrap:wrap;">
+      <a href="{{ url_for('catalog.new_item') }}" class="btn btn-ghost btn-sm"><i data-lucide="plus" class="icon"></i> Nuovo oggetto</a>
+      <a href="{{ url_for('catalog.categories') }}" class="btn btn-ghost btn-sm"><i data-lucide="shapes" class="icon"></i> Categorie</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="block-header">
+      <h2><i data-lucide="briefcase" class="icon"></i> Valigie</h2>
+      <a href="{{ url_for('luggage.list_luggage') }}" class="btn btn-ghost btn-sm">Apri</a>
+    </div>
+    {% if not luggage_list %}
+    <p class="text-muted text-sm">Nessuna valigia censita.</p>
+    {% else %}
+    <div class="mini-stat-list">
+      {% for lug in luggage_list[:5] %}
+      <div class="mini-stat-row">
+        <span>{{ lug.display_name }}</span>
+        <span class="status-pill status-pill--tutti">{{ lug.tipologia | capitalize }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="flex gap-sm" style="margin-top:16px;">
+      <a href="{{ url_for('luggage.new_luggage') }}" class="btn btn-ghost btn-sm"><i data-lucide="plus" class="icon"></i> Nuova valigia</a>
+    </div>
+  </div>
+  </div>
+
+
+  <!-- ========================= Viaggi passati (largo) ========================= -->
+  {% if past_with_stats %}
+  <div class="card home-block-wide">
+    <div class="block-header">
+      <h2><i data-lucide="plane-landing" class="icon"></i> Viaggi passati</h2>
+      {% if past_total > past_with_stats|length %}
+      <a href="{{ url_for('trips.list_trips') }}" class="btn btn-ghost btn-sm">Vedi tutti ({{ past_total }})</a>
+      {% endif %}
+    </div>
+    <div>
+      {% for trip, stats in past_with_stats %}
+      <a href="{{ url_for('trips.workspace', trip_id=trip.id) }}" class="trip-card-row">
+        <div class="trip-card-thumb" {% if trip.cover_image_url %}style="background-image:url('{{ trip.cover_image_url }}'); background-position: {{ trip.cover_image_position }}; opacity:0.75;"{% endif %}>
+          {% if not trip.cover_image_url %}<i data-lucide="image" class="icon" style="width:22px;height:22px; opacity:0.4;"></i>{% endif %}
+        </div>
+        <div class="trip-card-info">
+          <h3>{{ trip.destination }}</h3>
+          <div class="trip-card-meta"><span>{{ trip.start_date | data_it }} → {{ trip.end_date | data_it }}</span></div>
+        </div>
+        <div class="trip-card-progress text-muted">{{ stats.percentuale_pronta }}%</div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

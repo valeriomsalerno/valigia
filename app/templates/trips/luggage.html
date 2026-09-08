@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Valigie — {{ trip.destination }} — {{ app_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Le tue valigie per "{{ trip.destination }}"</h1>
+    <p>Scegli quali delle tue valigie porti in questo viaggio. Ogni collaboratore del viaggio gestisce le proprie, indipendentemente dagli altri.</p>
+  </div>
+  <a href="{{ url_for('trips.workspace', trip_id=trip.id) }}" class="btn btn-ghost btn-sm">
+    <i data-lucide="arrow-left" class="icon"></i> Torna al viaggio
+  </a>
+</div>
+
+<div class="card" style="padding:0; margin-bottom:22px; max-width:720px;">
+  {% if my_active %}
+  <table class="simple-table responsive-stack">
+    <thead><tr><th>Valigia attiva</th><th>Tipologia</th>
+      {% if other_collaborators %}<th>Condividi con</th>{% endif %}
+      <th></th></tr></thead>
+    <tbody>
+      {% for tl in my_active %}
+      <tr>
+        <td style="font-weight:600;">{{ tl.luggage.display_name }}</td>
+        <td data-label="Tipologia"><span class="status-pill status-pill--tutti">{{ tl.luggage.tipologia | capitalize }}</span></td>
+        {% if other_collaborators %}
+        <td data-label="Condividi con">
+          <form method="post" action="{{ url_for('trips.share_trip_luggage', trip_id=trip.id, trip_luggage_id=tl.id) }}" class="share-luggage-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% set shared_ids = tl.shared_with_user_ids() %}
+            {% for collab in other_collaborators %}
+            <label class="checkbox-inline">
+              <input type="checkbox" name="shared_with" value="{{ collab.id }}" {{ 'checked' if collab.id in shared_ids }}
+                     onchange="this.form.requestSubmit()">
+              {{ collab.display_name }}
+            </label>
+            {% endfor %}
+          </form>
+        </td>
+        {% endif %}
+        <td style="text-align:right;">
+          <form method="post" action="{{ url_for('trips.remove_trip_luggage', trip_id=trip.id, trip_luggage_id=tl.id) }}"
+                onsubmit="return confirm('Rimuovere questa valigia dal viaggio? Le quantità già inserite andranno perse.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-ghost btn-sm" {{ 'disabled' if my_active | length <= 1 }}>
+              <i data-lucide="x" class="icon"></i>
+            </button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if other_collaborators %}
+  <p class="hint" style="padding:0 16px 16px;">
+    Chi condivide con te può mettere le proprie cose (anche oggetti che non hai nel tuo catalogo) dentro la valigia che condividi: il peso mostrato somma il contributo di tutti.
+  </p>
+  {% endif %}
+  {% else %}
+  <div class="empty-state"><p>Nessuna valigia attiva ancora.</p></div>
+  {% endif %}
+</div>
+
+{% if shared_with_me %}
+<div class="card" style="max-width:720px; margin-bottom:22px;">
+  <h3 style="font-size:15px; margin-bottom:6px;"><i data-lucide="users" class="icon"></i> Condivise con te</h3>
+  <p class="text-sm text-muted" style="margin-bottom:14px;">Valigie di altri collaboratori in cui puoi mettere le tue cose per questo viaggio.</p>
+  <ul style="margin:0; padding-left:20px;">
+    {% for tl in shared_with_me %}
+    <li>{{ tl.luggage.display_name }} <span class="text-muted">({{ tl.luggage.tipologia_label }}, di {{ tl.luggage.owner.display_name }})</span></li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% set inactive = my_available_luggage | rejectattr('id', 'in', my_active_luggage_ids) | list %}
+{% if inactive %}
+<div class="card" style="max-width:720px;">
+  <h3 style="font-size:15px; margin-bottom:14px;">Aggiungi un'altra tua valigia</h3>
+  <div class="flex gap-sm" style="flex-wrap:wrap;">
+    {% for lug in inactive %}
+    <form method="post" action="{{ url_for('trips.manage_luggage', trip_id=trip.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="luggage_id" value="{{ lug.id }}">
+      <button type="submit" class="btn btn-ghost btn-sm">
+        <i data-lucide="briefcase" class="icon"></i> {{ lug.display_name }}
+        <span class="text-muted">({{ lug.tipologia }})</span>
+      </button>
+    </form>
+    {% endfor %}
+  </div>
+</div>
+{% else %}
+<p class="text-muted text-sm">Tutte le tue valigie sono già attive su questo viaggio.
+  <a href="{{ url_for('luggage.new_luggage') }}">Aggiungine una nuova</a>.</p>
+{% endif %}
+{% endblock %}

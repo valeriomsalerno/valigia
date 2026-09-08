@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Lista della spesa — {{ app_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1><i data-lucide="shopping-cart" class="icon" style="color:var(--red);"></i> Lista della spesa</h1>
+    <p>Tutti i viaggi con qualcosa ancora da comprare, dal più vicino al più lontano.</p>
+  </div>
+</div>
+
+{% if not rows %}
+<div class="empty-state">
+  <i data-lucide="check-circle" class="icon"></i>
+  <h2>Niente da comprare</h2>
+  <p>Quando segnalerai una quantità mancante su un viaggio, comparirà qui.</p>
+</div>
+{% else %}
+<div class="stack-md">
+  {% for row in rows %}
+  <div class="card">
+    <div class="flex-between" style="margin-bottom:12px; flex-wrap:wrap; gap:10px;">
+      <div>
+        <h3 style="font-size:16.5px;">
+          {{ row.trip.destination }}
+          {% if row.trip.is_ongoing %}<span class="status-pill status-pill--verde" style="margin-left:6px;">In corso</span>
+          {% elif row.trip.is_upcoming %}<span class="status-pill status-pill--tutti" style="margin-left:6px;">Tra {{ row.trip.days_to_departure }} giorni</span>
+          {% else %}<span class="status-pill status-pill--grigio" style="margin-left:6px;">Concluso</span>{% endif %}
+        </h3>
+        <p class="text-muted text-sm">{{ row.trip.start_date | data_it }} → {{ row.trip.end_date | data_it }} · {{ row.total_missing }} oggetti da comprare</p>
+      </div>
+      <a href="{{ url_for('trips.workspace', trip_id=row.trip.id) }}#spesa" class="btn btn-brass btn-sm">
+        <i data-lucide="shopping-cart" class="icon"></i> Apri lista della spesa
+      </a>
+    </div>
+
+    <div class="flex gap-sm" style="flex-wrap:wrap;">
+      {% for buyer_group in row.summary %}
+      {% if buyer_group.missing_items %}
+      <span class="shared-badge">{{ buyer_group.user.display_name }}: {{ buyer_group.missing_items | length }}</span>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

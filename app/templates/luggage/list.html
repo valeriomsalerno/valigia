@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Valigie — {{ app_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Le tue valigie</h1>
+    <p>Le borse fisiche che possiedi: marca, tipologia, peso a vuoto e capacità. Le scegli, per nome, nella pagina "Valigie" di ciascun viaggio.</p>
+  </div>
+  <a href="{{ url_for('luggage.new_luggage') }}" class="btn btn-brass">
+    <i data-lucide="plus" class="icon"></i> Nuova valigia
+  </a>
+</div>
+
+{% if not items %}
+<div class="empty-state">
+  <i data-lucide="briefcase" class="icon"></i>
+  <h2>Nessuna valigia censita</h2>
+  <p>Aggiungi le tue borse per tenere traccia di peso e capacità.</p>
+  <a href="{{ url_for('luggage.new_luggage') }}" class="btn btn-primary" style="margin-top:16px;">
+    <i data-lucide="plus" class="icon"></i> Aggiungi la prima valigia
+  </a>
+</div>
+{% else %}
+<div class="card" style="padding:0;">
+  <table class="simple-table responsive-stack">
+    <thead>
+      <tr><th>Marca</th><th>Nome / modello</th><th>Tipologia</th><th>Peso a vuoto</th><th>Capacità</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td class="text-muted" data-label="Marca">
+          {{ item.brand or "—" }}
+          {% if item.is_default_for_new_trip %}<i data-lucide="star" class="icon" style="width:13px;height:13px;color:var(--brass-600); vertical-align:middle;" title="Attiva automaticamente sui nuovi viaggi"></i>{% endif %}
+        </td>
+        <td style="font-weight:600;" data-label="Nome / modello">{{ item.name }}</td>
+        <td data-label="Tipologia">
+          <span class="status-pill status-pill--tutti">{{ item.tipologia | capitalize }}</span>
+        </td>
+        <td data-label="Peso a vuoto">{{ item.weight_kg | numero_it }}{{ ' kg' if item.weight_kg }}</td>
+        <td data-label="Capacità">{{ item.capacity_liters | numero_it }}{{ ' L' if item.capacity_liters }}</td>
+        <td style="text-align:right; white-space:nowrap;">
+          <a href="{{ url_for('luggage.edit_luggage', luggage_id=item.id) }}" class="btn btn-ghost btn-sm">
+            <i data-lucide="pencil" class="icon"></i>
+          </a>
+          <form method="post" action="{{ url_for('luggage.delete_luggage', luggage_id=item.id) }}" style="display:inline;"
+                onsubmit="return confirm('Eliminare questa valigia? Verrà rimossa anche da tutti i viaggi in cui è attiva.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-ghost btn-sm"><i data-lucide="trash-2" class="icon"></i></button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Modifica valigia' if item else 'Nuova valigia' }} — {{ app_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>{{ 'Modifica valigia' if item else 'Nuova valigia' }}</h1>
+    <p>Marca, peso a vuoto e capacità interna della borsa.</p>
+  </div>
+  <a href="{{ url_for('luggage.list_luggage') }}" class="btn btn-ghost btn-sm">
+    <i data-lucide="arrow-left" class="icon"></i> Le tue valigie
+  </a>
+</div>
+
+<div class="card" style="max-width:520px;">
+  <form method="post" novalidate>
+    {{ form.hidden_tag() }}
+    <div class="form-grid">
+      <div class="form-row">
+        {{ form.brand.label }}
+        {{ form.brand(placeholder="Es. Samsonite") }}
+        {% for e in form.brand.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+      </div>
+      <div class="form-row">
+        {{ form.name.label }}
+        {{ form.name(autofocus=true, placeholder="Es. Cosmolite 75L") }}
+        {% for e in form.name.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+      </div>
+      <div class="form-row">
+        {{ form.tipologia.label }}
+        {{ form.tipologia() }}
+        {% for e in form.tipologia.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+      </div>
+      <div class="two-col">
+        <div class="form-row">
+          {{ form.weight_kg.label }}
+          {{ form.weight_kg(placeholder="Es. 3,2") }}
+          <p class="hint">Virgola per i decimali, punto per le migliaia (es. 1.500,5).</p>
+          {% for e in form.weight_kg.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+        </div>
+        <div class="form-row">
+          {{ form.capacity_liters.label }}
+          {{ form.capacity_liters(placeholder="Es. 75") }}
+          {% for e in form.capacity_liters.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+        </div>
+      </div>
+      <div class="form-row">
+        {{ form.notes.label }}
+        {{ form.notes(rows=3, placeholder="Note libere…") }}
+        {% for e in form.notes.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+      </div>
+      <div class="checkbox-row">
+        {{ form.is_default_for_new_trip() }} {{ form.is_default_for_new_trip.label }}
+      </div>
+    </div>
+
+    <div class="flex gap-sm" style="margin-top:20px;">
+      {{ form.submit(class_="btn btn-primary") }}
+      <a href="{{ url_for('luggage.list_luggage') }}" class="btn btn-ghost">Annulla</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

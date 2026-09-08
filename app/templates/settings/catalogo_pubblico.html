@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Catalogo pubblico — {{ app_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Catalogo pubblico</h1>
+    <p>Spunta cosa includere nel catalogo di base esportabile. Tutto parte privato: ciò che non spunti non finisce mai nel file.</p>
+  </div>
+</div>
+
+<div class="card" style="max-width:640px;">
+  <h3 style="font-size:14px; margin-bottom:10px;">Oggetti</h3>
+  {% if not items %}
+  <p class="text-muted text-sm">Nessun oggetto nel tuo catalogo.</p>
+  {% else %}
+  <div class="public-catalog-list">
+    {% for item in items %}
+    <div class="public-catalog-row">
+      <span>{{ item.name }}</span>
+      <label class="public-toggle" title="Includi nel catalogo pubblico">
+        <input type="checkbox" data-public-toggle data-tipo="oggetto" data-id="{{ item.id }}" {% if item.is_public %}checked{% endif %}>
+        <i data-lucide="globe" class="icon"></i>
+      </label>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="card mt-lg" style="max-width:640px;">
+  <h3 style="font-size:14px; margin-bottom:10px;">Valigie</h3>
+  {% if not luggages %}
+  <p class="text-muted text-sm">Nessuna valigia nel tuo catalogo.</p>
+  {% else %}
+  <div class="public-catalog-list">
+    {% for lug in luggages %}
+    <div class="public-catalog-row">
+      <span>{{ lug.display_name }}</span>
+      <label class="public-toggle" title="Includi nel catalogo pubblico">
+        <input type="checkbox" data-public-toggle data-tipo="valigia" data-id="{{ lug.id }}" {% if lug.is_public %}checked{% endif %}>
+        <i data-lucide="globe" class="icon"></i>
+      </label>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="card mt-lg" style="max-width:640px;">
+  <form method="post" action="{{ url_for('settings.export_public_catalog') }}"
+        onsubmit="return confirm('Genera il catalogo di base da quanto hai spuntato sopra. Continuare?');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-primary">
+      <i data-lucide="upload" class="icon"></i> Salva il catalogo da esportare
+    </button>
+  </form>
+  {% if has_custom_base %}
+  <div class="flex gap-sm" style="margin-top:10px;">
+    <a href="{{ url_for('settings.download_public_catalog') }}" class="btn btn-ghost btn-sm">
+      <i data-lucide="file-down" class="icon"></i> Scarica il file
+    </a>
+    <form method="post" action="{{ url_for('settings.reset_public_catalog') }}"
+          onsubmit="return confirm('Tornare al catalogo di base originale, annullando la personalizzazione attuale?');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-ghost btn-sm">
+        <i data-lucide="rotate-ccw" class="icon"></i> Ripristina originale
+      </button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}?v={{ app_version }}"></script>
+{% endblock %}

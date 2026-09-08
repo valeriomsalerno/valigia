@@ -1,0 +1,54 @@
+{# Frammento riutilizzato sia dentro trips/workspace.html sia dalla route
+   di aggiornamento live (trips.shopping_panel_fragment), così la lista
+   della spesa si può ricaricare via JS senza duplicare il markup. #}
+{% set any_items = shopping_summary | map(attribute='missing_items') | map('length') | sum %}
+{% if not any_items %}
+<div class="empty-state">
+  <i data-lucide="check-circle" class="icon"></i>
+  <h2>Niente da comprare</h2>
+  <p>Quando indichi che manca qualche unità di un oggetto nel pannello Valigia, comparirà qui.</p>
+</div>
+{% else %}
+{% for buyer_group in shopping_summary %}
+{% if buyer_group.missing_items %}
+<div class="category-section">
+  <div class="category-tag" style="background: var(--navy-800);">
+    <i data-lucide="user-round" class="icon" style="width:14px;height:14px;"></i>
+    {{ buyer_group.user.display_name }}
+    <span class="count">{{ buyer_group.missing_items | length }}</span>
+  </div>
+  <div class="item-list">
+    {% for ti in buyer_group.missing_items %}
+    <div class="shopping-row">
+      <span class="cat-dot" style="background:{{ ti.item.category.color }};"></span>
+      <div style="flex:1;">
+        <div class="name">{{ ti.item.name }}</div>
+        <div class="cat-name">
+          {{ ti.item.category.name }} · serve {{ ti.total_qty }} · hai già {{ ti.owned_qty }} ·
+          <strong style="color:var(--red);">manca {{ ti.missing_qty }}</strong>
+          {% if ti.user_id != ti.assigned_buyer_id and ti.assigned_buyer_id %}
+          <span class="text-muted">(di {{ ti.user.display_name }})</span>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if ti.user_id == current_user.id and trip.collaborators() | length > 1 %}
+      <select class="buyer-select" data-reassign-buyer="{{ ti.id }}" title="Assegna l'acquisto a">
+        {% for collab in trip.collaborators() %}
+        <option value="{{ collab.id }}" {{ 'selected' if (ti.assigned_buyer_id or ti.user_id) == collab.id }}>
+          {{ collab.display_name }}{{ ' (tu)' if collab.id == current_user.id }}
+        </option>
+        {% endfor %}
+      </select>
+      {% endif %}
+
+      <button type="button" class="btn btn-brass btn-sm" data-mark-purchased="{{ ti.id }}">
+        <i data-lucide="check" class="icon"></i> Acquistato
+      </button>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endfor %}
+{% endif %}

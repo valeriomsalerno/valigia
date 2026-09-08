@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Pagina non disponibile offline — {{ app_name }}{% endblock %}
+{% block content %}
+<div class="empty-state">
+  <i data-lucide="cloud-off" class="icon"></i>
+  <h2>Questa pagina non è ancora disponibile offline</h2>
+  <p>
+    Puoi consultare senza connessione solo le pagine che hai già aperto
+    almeno una volta con la rete attiva. Aprila la prossima volta che
+    sei online: da quel momento resterà disponibile anche offline.
+  </p>
+  <p class="text-sm text-muted">
+    Puoi preparare le pagine principali in anticipo (prima di partire,
+    con la rete attiva) dal pulsante "Prepara per l'uso offline" nella Home.
+  </p>
+  <a href="{{ url_for('dashboard.index') if current_user.is_authenticated else url_for('auth.login') }}" class="btn btn-primary" style="margin-top:16px;">
+    <i data-lucide="home" class="icon"></i> Torna alla Home
+  </a>
+</div>
+{% endblock %}

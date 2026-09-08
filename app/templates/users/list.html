@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Utenti — {{ app_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Utenti</h1>
+    <p>Ogni utente ha il proprio catalogo e i propri viaggi, condivisibili su richiesta dal proprietario del viaggio.</p>
+  </div>
+  <a href="{{ url_for('users.new_user') }}" class="btn btn-brass">
+    <i data-lucide="user-plus" class="icon"></i> Nuovo utente
+  </a>
+</div>
+
+<div class="card" style="padding:0;">
+  <table class="simple-table responsive-stack">
+    <thead>
+      <tr><th>Utente</th><th>Ruolo</th><th>Stato</th><th></th><th></th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td>
+          <div style="font-weight:600;">{{ u.display_name }}{{ ' (tu)' if u.id == current_user.id }}</div>
+          {% if u.full_name %}<div class="text-muted text-sm">@{{ u.username }}</div>{% endif %}
+        </td>
+        <td class="text-muted" data-label="Ruolo">{{ 'Amministratore' if u.role == 'admin' else 'Membro' }}</td>
+        <td data-label="Stato">
+          {% if u.active %}<span class="status-pill status-pill--verde">Attivo</span>
+          {% else %}<span class="status-pill status-pill--grigio">Disattivato</span>{% endif %}
+          {% if u.must_change_password %}<span class="status-pill status-pill--giallo">Password da cambiare</span>{% endif %}
+        </td>
+        <td>
+          <form method="post" action="{{ url_for('users.reset_password', user_id=u.id) }}"
+                onsubmit="return confirm('Reimpostare la password di {{ u.username }}?');"
+                style="display:flex; gap:6px; align-items:center;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="text" name="new_password" placeholder="Nuova password" required
+                   style="border:1px solid var(--line); border-radius:8px; padding:6px 8px; width:130px;">
+            <button type="submit" class="btn btn-ghost btn-sm" title="Reimposta password">
+              <i data-lucide="key-round" class="icon"></i>
+            </button>
+          </form>
+        </td>
+        <td style="text-align:right; white-space:nowrap;">
+          <a href="{{ url_for('users.edit_user', user_id=u.id) }}" class="btn btn-ghost btn-sm" title="Modifica nome/nickname">
+            <i data-lucide="pencil" class="icon"></i>
+          </a>
+          {% if u.id != current_user.id %}
+          <form method="post" action="{{ url_for('users.toggle_active', user_id=u.id) }}" style="display:inline;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-ghost btn-sm">
+              {% if u.active %}<i data-lucide="user-x" class="icon"></i> Disattiva
+              {% else %}<i data-lucide="user-check" class="icon"></i> Riattiva{% endif %}
+            </button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
