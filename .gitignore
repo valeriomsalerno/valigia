@@ -1,3 +1,4 @@
+cat > .gitignore << 'EOF'
 # Ambienti virtuali e dipendenze
 venv/
 .venv/
@@ -7,9 +8,9 @@ __pycache__/
 # Segreti e configurazione locale
 .env
 
-# Database e dati persistenti (montati come volume in Docker)
-data/*.db
-data/*.sqlite3
+# Cartella dati persistente (database, catalogo personalizzato, tutto):
+# esclusa per intero, non solo alcune estensioni al suo interno
+data/
 
 # Test e cache
 .pytest_cache/
@@ -20,3 +21,4 @@ htmlcov/
 .DS_Store
 .vscode/
 .idea/
+EOF
