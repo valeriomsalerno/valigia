@@ -500,6 +500,22 @@ def _migrate_to_v18(conn) -> None:
     _add_column(conn, "luggage", "is_public", "BOOLEAN DEFAULT 0")
 
 
+def _migrate_to_v19(conn) -> None:
+    """Aggiunge has_photo a items e item_variants (foto caricata dall'utente, vedi catalog/routes.py)."""
+    _add_column(conn, "items", "has_photo", "BOOLEAN DEFAULT 0")
+    _add_column(conn, "item_variants", "has_photo", "BOOLEAN DEFAULT 0")
+
+
+def _migrate_to_v20(conn) -> None:
+    """
+    Aggiunge icon a items: un'icona Lucide (lucide.dev) a scelta libera
+    — come Category.icon, mai un menu a tendina curato (vedi
+    CONTEXT.md) — mostrata al posto dell'icona generica "immagine"
+    quando l'oggetto non ha una foto caricata.
+    """
+    _add_column(conn, "items", "icon", "VARCHAR(40)")
+
+
 # Elenco ordinato delle migrazioni: indice 0 porta alla versione 1, ecc.
 _MIGRATIONS = [
     _migrate_to_v1,
@@ -520,6 +536,8 @@ _MIGRATIONS = [
     _migrate_to_v16,
     _migrate_to_v17,
     _migrate_to_v18,
+    _migrate_to_v19,
+    _migrate_to_v20,
 ]
 
 

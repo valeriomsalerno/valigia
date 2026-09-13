@@ -1,0 +1,23 @@
+{#
+  Macro condivise, riusate in più template — vedi ciascuna per dove.
+#}
+
+{#
+  Renderizza Item.icon: può essere un nome icona Lucide/Lucide-lab
+  (es. "shirt", "shorts-boxer" — vedi app/static/js/lucide-lab.js per
+  il set esteso) OPPURE un'emoji digitata da tastiera (es. "👕") — le
+  due cose richiedono markup diverso (bug reale segnalato: un'emoji
+  dentro data-lucide non veniva mostrata affatto, perché
+  lucide.createIcons() la cerca nel set di icone e, non trovandola,
+  non genera nulla). Usata ovunque compare la miniatura di un
+  oggetto senza foto: item_detail.html, items.html, workspace.html.
+  `icon` non deve essere vuoto: il chiamante decide already se
+  mostrarla (di solito dentro un {% elif item.icon %}).
+#}
+{% macro item_icon_or_emoji(icon, css_class='icon') %}
+{%- if icon is lucide_icon_name -%}
+<i data-lucide="{{ icon }}" class="{{ css_class }}"></i>
+{%- else -%}
+<span class="emoji-icon">{{ icon }}</span>
+{%- endif -%}
+{% endmacro %}

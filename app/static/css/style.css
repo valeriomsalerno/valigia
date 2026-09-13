@@ -878,6 +878,7 @@ select:focus-visible, textarea:focus-visible {
 .item-row[data-status="da_preparare"]    { background: linear-gradient(90deg, color-mix(in srgb, var(--amber) 38%, var(--paper)) 0%, color-mix(in srgb, var(--amber) 38%, var(--paper)) 22%, var(--paper) 340px); }
 .item-row[data-status="non_necessario"]  { background: linear-gradient(90deg, color-mix(in srgb, var(--ink-300) 38%, var(--paper)) 0%, color-mix(in srgb, var(--ink-300) 38%, var(--paper)) 22%, var(--paper) 340px); }
 .item-row.is-hidden-completed { display: none; }
+.item-row.is-hidden-by-search,
 .shopping-row.is-hidden-by-search,
 .category-section.is-hidden-by-search { display: none; }
 
@@ -1249,6 +1250,15 @@ tr.drag-reorder-placeholder td { border: none; padding: 0; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 560px) { .two-col { grid-template-columns: 1fr; } }
 
+/* Pagina unica di un oggetto (view+modifica insieme, v3.8.0): modulo di
+   modifica a sinistra, dettagli (zona pericolosa, modelli, storico) a
+   destra — prima erano due pagine separate, con troppi rimandi avanti
+   e indietro (bug reale segnalato). Sotto la stessa soglia "mobile"
+   usata altrove nell'app (860px, vedi il menu hamburger) diventa una
+   sola colonna: modulo prima, dettagli sotto. */
+.item-page-layout { display: grid; grid-template-columns: minmax(320px, 560px) 1fr; gap: 20px; align-items: start; }
+@media (max-width: 860px) { .item-page-layout { grid-template-columns: 1fr; } }
+
 table.simple-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 table.simple-table th {
   text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em;
@@ -1274,7 +1284,7 @@ table.simple-table td:last-child { overflow: visible; white-space: nowrap; }
    né su desktop né su mobile — a scapito, su schermi molto stretti,
    di un testo più troncato (già gestito con l'ellissi) piuttosto che
    dello scorrimento orizzontale. Ordine di priorità voluto: Nome (la
-   più larga) > Regola quantità > Valigia predefinita > Peso > Azioni.
+   più larga) > Regola quantità > Posizione predefinita > Peso > Azioni.
 */
 table.simple-table.catalog-items-table { table-layout: fixed; }
 
@@ -1294,7 +1304,7 @@ table.catalog-items-table th:nth-child(6), table.catalog-items-table td:nth-chil
 /* Colonna Peso: allineata a sinistra ESATTAMENTE come tutte le altre
    (intestazione E valori nelle righe), senza alcun trattamento
    speciale — un padding extra provato in precedenza per "staccarla"
-   dalla colonna "Valigia predefinita" dava paradossalmente l'effetto
+   dalla colonna "Posizione predefinita" dava paradossalmente l'effetto
    opposto (il testo sembrava centrato, non più allineato a sinistra
    in modo pulito: bug reale segnalato). Lo spazio adeguato resta
    comunque garantito dalla colonna allargata (12% invece dell'8%
@@ -1302,6 +1312,10 @@ table.catalog-items-table th:nth-child(6), table.catalog-items-table td:nth-chil
 table.catalog-items-table .drag-handle-cell { cursor: grab; padding-left:6px; padding-right:0; }
 table.catalog-items-table .drag-handle-cell .drag-handle { color: var(--ink-300); }
 table.catalog-items-table .drag-handle-cell .icon { width: 16px; height: 16px; }
+/* Base generica per QUALUNQUE altra tabella con una colonna-maniglia
+   (es. "Categorie"): la stessa resa del trascinamento, senza le
+   rifiniture di spaziatura studiate apposta per catalog-items-table. */
+.drag-handle-cell { cursor: grab; }
 /* Sul layout a schede (mobile), il nome è la SECONDA colonna qui (la
    prima è la maniglia) — sposta il trattamento "titolo, senza
    etichetta" da :first-child a :nth-child(2), altrimenti la maniglia
@@ -1318,6 +1332,17 @@ table.catalog-items-table .drag-handle-cell .icon { width: 16px; height: 16px; }
 }
 table.catalog-items-table td:last-child .btn { padding: 5px 6px; }
 table.catalog-items-table td:last-child .icon { width: 14px; height: 14px; }
+/* "Torna al catalogo" ancora sulla riga esatta dell'oggetto di
+   provenienza (vedi catalog/routes.py::_resolve_navigation_context —
+   niente più Referer/cronologia, un link fisso con #item-<id>): senza
+   questo, la riga finirebbe scorsa ESATTAMENTE sotto la topbar fissa
+   (min-height 60px), a filo o parzialmente coperta. */
+table.catalog-items-table tr[id^="item-"] { scroll-margin-top: 76px; }
+table.catalog-items-table tr[id^="item-"]:target { animation: item-row-highlight 2.4s ease-out; }
+@keyframes item-row-highlight {
+  from { background: var(--brass-100); }
+  to { background: transparent; }
+}
 
 /* ---------------------------------------------------------------------
    Tabelle responsive su mobile: sotto una certa larghezza, una tabella
@@ -1791,6 +1816,7 @@ body[data-viewing-all-categories="true"] .category-panel-heading { display: flex
   padding: 12px 0; border-bottom: 1px solid var(--line);
 }
 .variant-modal-row:last-child { border-bottom: none; }
+.variant-modal-row-info { display: flex; align-items: center; gap: 10px; }
 .variant-modal-row-info strong { display: block; font-size: 13.5px; }
 .variant-modal-row-info span { font-size: 12px; color: var(--ink-500); }
 .variant-modal-row .qty-stepper { align-self: flex-end; }
@@ -1821,6 +1847,63 @@ body.editing-table-columns .col-resize-handle { display: block; }
   background: var(--brass-500); width: 4px;
 }
 [data-column-edit-toggle].is-active { background: var(--brass-100); border-color: var(--brass-400); }
+
+/* Widget foto di un oggetto/modello: miniatura quadrata + pulsanti azione accanto */
+.item-photo-widget { display: flex; align-items: center; gap: 14px; }
+.item-photo-preview {
+  width: 84px; height: 84px; flex-shrink: 0;
+  border-radius: var(--radius-md); border: 1px solid var(--line);
+  background: var(--ivory);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+.item-photo-preview .icon { width: 26px; height: 26px; color: var(--ink-300); }
+.item-photo-preview .emoji-icon { font-size: 32px; line-height: 1; }
+.item-photo-preview.has-photo { cursor: zoom-in; }
+/* object-fit:contain, non "cover": la foto di un oggetto/modello deve
+   restare INTERAMENTE visibile, senza essere ritagliata né deformata
+   (bug reale segnalato) — a costo di un margine vuoto quando le
+   proporzioni non coincidono con il riquadro quadrato. Puro CSS: si
+   applica retroattivamente anche alle foto già caricate, senza
+   bisogno di rielaborarle. */
+.item-photo-preview img {
+  width: 100%; height: 100%; object-fit: contain; cursor: zoom-in;
+}
+.item-photo-actions { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+
+/* Miniatura più piccola, per elencazioni (catalogo, viaggio) — stesso
+   principio del widget sopra ma pensata per stare dentro una riga di
+   tabella o una card, non da sola. */
+.item-photo-thumb {
+  width: 36px; height: 36px; flex-shrink: 0;
+  border-radius: 8px; border: 1px solid var(--line);
+  background: var(--ivory);
+  display: inline-flex; align-items: center; justify-content: center;
+  overflow: hidden; vertical-align: middle;
+}
+.item-photo-thumb img { width: 100%; height: 100%; object-fit: contain; cursor: zoom-in; }
+.item-photo-thumb .icon { width: 16px; height: 16px; color: var(--ink-300); }
+.item-photo-thumb .emoji-icon { font-size: 18px; line-height: 1; }
+
+/* Visualizzatore a schermo intero (zoom) — markup in base.html */
+.photo-zoom-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(15, 28, 48, 0.92);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+.photo-zoom-overlay img {
+  max-width: 100%; max-height: 100%; object-fit: contain;
+  border-radius: var(--radius-md);
+}
+.photo-zoom-close {
+  position: absolute; top: 18px; right: 18px;
+  width: 40px; height: 40px; border-radius: 999px;
+  background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.25);
+  color: var(--paper); display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.photo-zoom-close:hover { background: rgba(255,255,255,0.22); }
 
 /* Spunta "includi nel catalogo pubblico" — un'icona a forma di globo
    che si accende quando spuntata, discreta finché non serve guardarla. */

@@ -39,10 +39,7 @@ def _trip_item_payload(trip_item: TripItem) -> dict:
 
     mismatch_message = None
     if trip_item.item.default_luggage_type:
-        mismatch_message = (
-            f"{trip_item.item.name} andrebbe messo nella valigia da "
-            f"{trip_item.item.default_luggage_type_label.lower()}"
-        )
+        mismatch_message = f"{trip_item.item.name} {trip_item.item.mismatch_hint}"
 
     return {
         "trip_item_id": trip_item.id,
@@ -324,6 +321,40 @@ def reorder_items():
 
     for order, item_id in enumerate(item_ids):
         items_by_id[item_id].sort_order = order
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+@api_bp.route("/riordina-categorie", methods=["POST"])
+@login_required
+def reorder_categories():
+    """
+    Riordina manualmente (trascinamento) le categorie del proprio
+    catalogo (Category.sort_order) — un unico elenco piatto, a
+    differenza degli oggetti che si riordinano solo dentro la propria
+    categoria. Rispettato sia dal Catalogo (catalog.items) sia dal
+    workspace di un viaggio (entrambi ordinano già per
+    Category.sort_order): un solo ordine, coerente ovunque.
+    """
+    from app.models import Category
+
+    data = request.get_json(silent=True) or {}
+    category_ids = data.get("category_ids")
+    if not isinstance(category_ids, list) or not category_ids:
+        return jsonify({"ok": False, "error": "Elenco non valido."}), 400
+
+    try:
+        category_ids = [int(i) for i in category_ids]
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Elenco non valido."}), 400
+
+    categories = Category.query.filter(Category.id.in_(category_ids), Category.owner_id == current_user.id).all()
+    categories_by_id = {c.id: c for c in categories}
+    if len(categories_by_id) != len(set(category_ids)):
+        return jsonify({"ok": False, "error": "Alcune categorie non sono più valide: ricarica la pagina."}), 400
+
+    for order, category_id in enumerate(category_ids):
+        categories_by_id[category_id].sort_order = order
     db.session.commit()
     return jsonify({"ok": True})
 

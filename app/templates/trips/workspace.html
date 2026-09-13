@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import item_icon_or_emoji %}
 {% block title %}{{ trip.destination }} — {{ app_name }}{% endblock %}
 
 {% block content %}
@@ -121,14 +122,12 @@
 <div class="main-tab-panel" data-main-tab-panel="valigia">
 
   <div class="toolbar">
-    <form method="get" class="flex gap-sm" style="flex:1; flex-wrap:wrap;">
+    <div class="flex gap-sm" style="flex:1; flex-wrap:wrap;">
       <div class="search-field">
         <i data-lucide="search" class="icon"></i>
-        <input type="text" name="q" value="{{ search }}" placeholder="Cerca un oggetto…">
+        <input type="text" value="{{ search }}" placeholder="Cerca un oggetto…" data-item-search>
       </div>
-      <input type="hidden" name="stato" value="{{ status_filter }}">
-      <noscript><button type="submit" class="btn btn-ghost btn-sm">Filtra</button></noscript>
-    </form>
+    </div>
 
     <label class="switch-row" title="Nasconde dalla vista gli oggetti già in valigia (verdi)">
       <span class="switch-track"><input type="checkbox" data-hide-completed><span class="switch-thumb"></span></span>
@@ -140,9 +139,10 @@
       <span class="switch-label">Nascondi non necessari</span>
     </label>
 
-    <form method="post" action="{{ url_for('trips.recompute', trip_id=trip.id) }}">
+    <form method="post" action="{{ url_for('trips.recompute', trip_id=trip.id) }}"
+          onsubmit="return confirm('Ricalcola le quantità automatiche, aggiunge gli oggetti nuovi del catalogo, rimuove quelli nel frattempo archiviati e riallinea l\'ordine a quello del catalogo. Continuare?');">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button type="submit" class="btn btn-ghost btn-sm" title="Ricalcola le tue quantità automatiche">
+      <button type="submit" class="btn btn-ghost btn-sm" title="Ricalcola quantità, aggiunge/rimuove oggetti e riallinea l'ordine al catalogo">
         <i data-lucide="refresh-cw" class="icon"></i> Ricalcola
       </button>
     </form>
@@ -194,20 +194,31 @@
 
   {% for group in grouped %}
   <div class="category-section category-panel" data-category-panel="{{ group.category.id }}" style="--cat-color: {{ group.category.color }};">
-    <div class="item-list" {% if not search and not status_filter %}data-reorderable{% endif %}>
+    <div class="item-list" {% if not status_filter %}data-reorderable{% endif %}>
       {% for ti in group.trip_items %}
       <div class="item-row" data-status="{{ ti.status }}" data-overflow="{{ 'true' if ti.is_overflowing else 'false' }}"
            data-worn="{{ 'true' if ti.indossato_qty > 0 else 'false' }}"
-           data-trip-item-id="{{ ti.id }}" data-item-id="{{ ti.item.id }}">
+           data-trip-item-id="{{ ti.id }}" data-item-id="{{ ti.item.id }}" data-item-name="{{ ti.item.name }}">
 
-        {% if not search and not status_filter %}
+        {% if not status_filter %}
         <span class="drag-handle" title="Trascina per riordinare" aria-hidden="true">
           <i data-lucide="grip-vertical" class="icon"></i>
         </span>
         {% endif %}
 
         <div class="item-name-col">
-          <button type="button" class="item-name-btn">{{ ti.item.name }}</button>
+          <div style="display:flex; align-items:center; gap:8px;">
+            {% if ti.item.has_photo %}
+            <div class="item-photo-thumb">
+              <img src="{{ url_for('catalog.item_photo_file', item_id=ti.item.id) }}" alt="Foto di {{ ti.item.name }}" data-photo-zoom-trigger>
+            </div>
+            {% elif ti.item.icon %}
+            <div class="item-photo-thumb">
+              {{ item_icon_or_emoji(ti.item.icon) }}
+            </div>
+            {% endif %}
+            <button type="button" class="item-name-btn">{{ ti.item.name }}</button>
+          </div>
           <span class="item-status-label" data-status-label>{{ ti.status_label }}</span>
         </div>
 
@@ -235,7 +246,7 @@
           {% else %}
           {% for tl in my_luggages %}
           <div class="qty-stepper {{ 'has-mismatch' if ti.has_luggage_mismatch(tl.id) }}" data-trip-item-id="{{ ti.id }}" data-trip-luggage-id="{{ tl.id }}"
-               title="{{ tl.luggage.display_name }}{{ (' — attenzione: ' ~ ti.item.name ~ ' andrebbe messo nella valigia da ' ~ ti.item.default_luggage_type_label|lower) if ti.has_luggage_mismatch(tl.id) else '' }}">
+               title="{{ tl.luggage.display_name }}{{ (' — attenzione: ' ~ ti.item.name ~ ' ' ~ ti.item.mismatch_hint) if ti.has_luggage_mismatch(tl.id) else '' }}">
             <span class="qty-label">{{ luggage_labels[tl.id] }}</span>
             <button type="button" data-step="-1" aria-label="Diminuisci">−</button>
             <input type="number" inputmode="numeric" min="0" max="999" value="{{ ti.qty_for_luggage(tl.id) }}">
@@ -246,7 +257,7 @@
           {% endif %}
 
           <div class="qty-stepper qty-stepper--worn" data-trip-item-id="{{ ti.id }}" title="Quante unità le indossi direttamente (non vanno in valigia)">
-            <span class="qty-label"><i data-lucide="shirt" class="icon" style="width:11px;height:11px;"></i></span>
+            <span class="qty-label"><i data-lucide="user" class="icon" style="width:11px;height:11px;"></i></span>
             <button type="button" data-step="-1" aria-label="Diminuisci">−</button>
             <input type="number" inputmode="numeric" min="0" max="999" value="{{ ti.indossato_qty }}">
             <button type="button" data-step="1" aria-label="Aumenta">+</button>

@@ -128,7 +128,7 @@ def test_full_walkthrough(app):
     resp = admin.post(
         "/catalogo/oggetti/nuovo",
         data={
-            "name": "Power bank",
+            "item_title": "Power bank",
             "category_id": "1",
             "quantity_rule": "manual",
             "fixed_qty": "1",

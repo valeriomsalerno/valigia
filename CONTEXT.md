@@ -5,7 +5,7 @@
 > nuova conversazione: leggilo TUTTO prima di scrivere codice. Contiene le
 > decisioni già prese e il perché, non solo l'elenco delle funzionalità.
 
-**Versione corrente: v3.6.7** (rilasciata 8 settembre 2026). Changelog
+**Versione corrente: v3.11.1** (rilasciata 13 settembre 2026). Changelog
 completo in `CHANGELOG.md`; versioni precedenti in `changelog/`.
 
 ---
@@ -629,7 +629,610 @@ rischio, funzionano identicamente sia nel layout a tabella (desktop)
 sia in quello a schede (`responsive-stack`, mobile) senza bisogno di
 alcun adattamento per il touch.
 
-## 4.37. Il catalogo di base personalizzato diventa reale (v3.6.7)
+## 4.46. Icone Lab: bug reale nella chiave (kebab vs PascalCase); Safari e "Nome oggetto" (v3.11.1)
+
+**Le icone Lab non apparivano affatto** (bug reale segnalato con due
+esempi concreti: `luggage-cabin`, `shorts-boxer`). Causa: il file
+statico `lucide-lab.js` (v3.11.0) chiavava le icone in kebab-case
+(`"luggage-cabin": [...]`), ma `lucide.createIcons()` **converte
+sempre** il valore di `data-lucide` in PascalCase internamente
+(funzione interna `toPascalCase`, verificata leggendo il sorgente del
+VERO bundle UMD scaricato dal registro npm) prima di cercarlo
+nell'oggetto `icons` passato — quindi la ricerca su chiavi kebab-case
+falliva SEMPRE, silenziosamente (nessun errore in console lato utente,
+solo un warning nella console del browser). Il bundle
+`lucide-lab.js` è stato rigenerato con chiavi PascalCase
+(`"LuggageCabin"`, `"ShortsBoxer"`, ecc.) — l'attributo HTML
+`data-lucide="luggage-cabin"` (quello che l'utente digita, copiandolo
+da lucide.dev) resta invariato in kebab-case: è SOLO la mappa interna
+delle 357 icone che doveva essere ri-chiavata.
+
+**Lezione per la prossima volta**: quando si verifica codice che
+interagisce con una libreria di terze parti, testarlo contro
+un **mock semplificato** (fatto in v3.11.0) NON basta — bisogna
+scaricare e testare contro il **bundle vero**, perché è lì che vivono
+i dettagli implementativi non documentati (in questo caso: la
+conversione automatica di case). Aggiunto un test pytest che apre
+direttamente il JSON delle icone e verifica che OGNI chiave sia
+PascalCase (comincia maiuscola, mai un trattino) — se in futuro
+qualcuno rigenera questo file seguendo la vecchia ricetta in kebab-case
+(quella scritta in v3.11.0, oggi corretta), il test lo segnala subito.
+
+**Safari continuava a suggerire "Compilazione automatica" su "Nome
+oggetto"** anche dopo il fix di v3.9.2 (che aveva cambiato solo l'`id`
+del campo, lasciando `name="name"` invariato — quest'ultimo è
+probabilmente il segnale più forte per l'euristica "questo è il nome
+di una persona", più forte dell'id). Scoperto che WTForms permette di
+disaccoppiare l'attributo Python dall'attributo HTML: `StringField(...,
+name="item_title")` — l'attributo HTML reso diventa `item_title`
+(`name`/`id` nel DOM), mentre il codice Python (`form.name.data`,
+`{{ form.name.label }}`, ecc.) resta ESATTAMENTE invariato, perché
+quello continua a fare riferimento all'attributo di classe `ItemForm.name`,
+non al valore HTML. Vedi `app/forms.py::ItemForm.name`. Aggiunti anche
+`autocorrect="off"`, `autocapitalize="off"`, `spellcheck="false"` come
+ulteriore rinforzo contro le funzioni di suggerimento della tastiera.
+
+**Impatto collaterale da ricordare**: qualunque test o integrazione
+esterna che invia il modulo di un oggetto deve usare la chiave
+`item_title` nel payload POST, non più `name` (il nome del CAMPO
+DEL MODELLO `Item.name` resta "name" — cambia solo il nome del CAMPO
+HTML del modulo). Se in futuro serve la stessa correzione su un altro
+campo "nome" (categoria, modello, valigia — non ancora segnalati),
+applica la stessa ricetta: `name="qualcosa_di_diverso"` sul campo
+WTForms, aggiornando di conseguenza qualunque test che invia quel
+modulo via POST.
+
+## 4.45. Icone Lucide "Lab" ed emoji, storico compatto, icona stepper indossato (v3.11.0)
+
+**Icone Lucide "Lab" (lucide.dev/icons/lab).** Il set principale di
+Lucide (caricato via CDN, `unpkg.com/lucide@latest`) NON include le
+icone "Lab" (es. `shorts-boxer`) — sono un pacchetto npm separato,
+`@lucide/lab`, pubblicato SOLO in formato ESM (nessun bundle
+UMD/globale pronto per un semplice `<script src="...">`, verificato
+prima di scegliere questa strada). Anziché caricare moduli ES a runtime
+(fragile: introdurrebbe una dipendenza asincrona e un possibile
+problema di ordine rispetto alle tante chiamate a
+`lucide.createIcons()` già sparse nell'app), le **357 icone Lab sono
+state estratte UNA VOLTA SOLA dal pacchetto npm reale** (scaricato dal
+registro ufficiale) e impacchettate in un file statico self-hosted,
+`app/static/js/lucide-lab.js` — coerente con l'impostazione
+offline-first dell'app (PWA, service worker): nessuna dipendenza
+runtime da un servizio esterno diverso da quello già in uso.
+
+Per rigenerarlo (es. dopo un aggiornamento di `@lucide/lab` a monte):
+```
+npm pack @lucide/lab && tar xzf lucide-lab-*.tgz
+```
+poi, dentro `package/`, leggere `dist/cjs/lucide-lab.js` (già in
+formato icon-node compatibile con `lucide.createIcons`) e i nomi file
+in `icons/*.svg` per la mappa kebab-case → export camelCase (la
+conversione kebab→camelCase è affidabile al 100%; quella camelCase→kebab
+NO — 10 icone su 357 hanno un numero finale che l'algoritmo inverso
+sbaglia, es. "crosshair2" invece di "crosshair-2" — usare SEMPRE i nomi
+file `.svg` come fonte della verità per il nome pubblico dell'icona).
+
+In `base.html`, la funzione `lucide.createIcons` viene "monkey-patchata"
+UNA SOLA VOLTA, subito dopo aver caricato sia il pacchetto principale
+sia `lucide-lab.js`: ogni chiamata successiva (anche quelle già
+esistenti nei tanti punti dell'app — `app.js`, `dashboard.js`, ecc. —
+tutte senza argomenti) include automaticamente anche le icone Lab,
+senza dover toccare nessuno di quei punti.
+
+**Emoji nel campo Icona.** Un'emoji digitata da tastiera (es. "👕") non
+è un nome icona: dentro `data-lucide="👕"`, `lucide.createIcons()` la
+cercherebbe invano nel set di icone e non produrrebbe nulla (bug
+potenziale, corretto preventivamente). Nuovo test Jinja
+`is lucide_icon_name` (`app/__init__.py`) — riconosce la FORMA di un
+nome icona (`^[a-z0-9]+(-[a-z0-9]+)*$`, sempre minuscolo) per decidere
+se renderizzare `<i data-lucide="...">` oppure un
+`<span class="emoji-icon">` col testo/emoji letterale. Centralizzato
+in una macro condivisa, `app/templates/_macros.html::item_icon_or_emoji`,
+importata in tutti e tre i punti dove compare la miniatura di un
+oggetto (item_detail.html, items.html, workspace.html) — se in futuro
+serve un quarto punto, importa la stessa macro, non duplicare la
+logica.
+
+**Storico nei viaggi più compatto.** Date in formato `gg/mm/aaaa`
+(`.strftime('%d/%m/%Y')`), quella di fine su una riga separata (`<br>`,
+niente trattino) invece di "19 set 2026 — 30 set 2026" su una riga
+sola — richiesta esplicita per risparmiare spazio orizzontale. Colonna
+"Quantità" allineata a sinistra come le altre (era l'unica a destra).
+Cambiamento scoped SOLO a questa tabella (`item_detail.html`): il
+filtro `data_it` usato altrove nell'app (es. le card dei viaggi) resta
+invariato.
+
+**Icona dello stepper "indossato".** Cambiata da `shirt` a `user`
+(`lucide.dev/icons/user`) in `workspace.html` — richiesta esplicita
+con screenshot, un solo punto da correggere.
+
+## 4.44. Foto non ritagliate, icona Lucide per oggetti senza foto (v3.10.0)
+
+**Foto non più ritagliate.** `.item-photo-preview img` e
+`.item-photo-thumb img` usavano `object-fit: cover` (riempie il
+riquadro, RITAGLIANDO le parti che eccedono) — cambiato in
+`object-fit: contain` (l'immagine intera resta sempre visibile, a
+costo di un margine vuoto quando le proporzioni non coincidono col
+riquadro quadrato). Puro CSS: si applica retroattivamente anche alle
+foto già caricate, senza bisogno di rielaborarle o ricaricarle.
+
+**Icona Lucide per un oggetto senza foto.** Nuova colonna `Item.icon`
+(stringa libera, `_migrate_to_v20` in `migrations.py`) — **come
+`Category.icon`, MAI un menu a tendina curato** (regola consolidata,
+vedi le note di progetto): un semplice campo di testo libero nel
+modulo di un oggetto ("Icona (se non hai una foto)"), con link a
+lucide.dev/icons, validato lato client solo per lunghezza (nessuna
+validazione sul NOME dell'icona: un nome sbagliato semplicemente non
+mostra nulla, Lucide ignora silenziosamente le icone che non esistono
+— comportamento accettabile, coerente con come già si comporta il
+campo icona delle categorie).
+
+**Foto e icona sono ALTERNATIVE, mai sovrapposte**: la foto, se
+presente, ha SEMPRE la precedenza (`{% if item.has_photo %}...{% elif
+item.icon %}...{% endif %}`, stesso ordine ovunque compare una
+miniatura di un oggetto — pagina dell'oggetto, lista del catalogo,
+riga nel workspace di un viaggio). Un oggetto senza NÉ foto NÉ icona
+mostra la vecchia icona generica "immagine" invariata (fallback,
+nessuna regressione per gli oggetti esistenti: la colonna nuova è
+`nullable`, tutti gli oggetti già in database partono con `icon =
+NULL`).
+
+**Non toccato**: le VARIANTI (modelli) di un oggetto non hanno un
+proprio campo icona — la richiesta parlava esplicitamente di "ogni
+oggetto", non di ogni modello; il loro placeholder senza foto resta la
+generica icona "immagine". Se in futuro serve anche lì, replicare
+esattamente la stessa ricetta (colonna nullable su `ItemVariant`,
+stesso ordine `has_photo` → `icon` → generico).
+
+## 4.43. Tre rifiniture sulla pagina di un oggetto (v3.9.2)
+
+**Spaziatura nell'intestazione "Modelli"**: `.flex-between` (nessun
+`gap` di suo) affiancava il titolo "Modelli" e la frase informativa
+("Facoltativo — utile per oggetti con varianti diverse...") senza
+respiro, specialmente quando la frase va a capo su due righe restando
+comunque a ridosso del titolo. Aggiunto `gap:12px; flex-wrap:wrap;`
+inline su quello specifico `.flex-between` (non alla classe base, che
+è condivisa altrove e non deve necessariamente comportarsi allo stesso
+modo ovunque).
+
+**Pulsanti di salvataggio duplicati anche in alto.** Un modulo lungo
+(più lungo ancora dopo la fusione con la pagina dettaglio, v3.8.0)
+costringeva a scorrere fino in fondo solo per premere "Salva oggetto".
+Il `<form>` principale ha ora `id="item-edit-form"`; i pulsanti
+duplicati in alto (`<button form="item-edit-form">`, attributo HTML
+standard che collega un pulsante a un form altrove nel documento,
+indipendentemente dalla posizione nel DOM) restano perfettamente
+funzionanti pur stando fuori dal markup del form stesso. "Annulla" in
+alto è un semplice `<a href="{{ return_to }}">` duplicato, non ha
+bisogno dell'attributo `form`.
+
+**Il browser non deve suggerire "Nome oggetto" come un campo
+anagrafico/password.** Bug segnalato con screenshot: un'estensione o
+funzione del browser proponeva "Compilazione automatica" su quel
+campo. Corretto con la combinazione standard: `autocomplete="off"` sul
+`<form>` E su OGNI campo (non basta uno dei due secondo le
+implementazioni pratiche dei vari browser), PIÙ — solo per "Nome
+oggetto", il campo più a rischio — un `id` non generico
+(`id="item-name"` invece del default `id="name"` che WTForms genera
+dal nome del campo Python: `id="name"` è probabilmente il singolo
+segnale più forte per l'euristica "questo è il nome di una persona").
+Sovrascrivere l'`id` richiede di sovrascrivere ANCHE il `for` della
+label associata, altrimenti si rompe il click-per-mettere-a-fuoco
+(`{{ form.name.label(**{'for': 'item-name'}) }}` — `for` è parola
+riservata in Python, va passato come chiave di un dict spacchettato,
+non come kwarg diretto). **Se in futuro emerge lo stesso problema su
+un altro campo "nome" altrove nell'app** (categoria, modello,
+valigia...) non ancora segnalato, la stessa ricetta si applica
+identica.
+
+## 4.42. "Torna al catalogo" da link-cronologia a link fisso ancorato (v3.9.1)
+
+**Bug grave segnalato**: "Torna al catalogo" (e di conseguenza anche
+"Salva oggetto" e "Annulla", che condividono lo stesso `return_to` —
+vedi `catalog/routes.py::_resolve_navigation_context`) "funziona come
+il pulsante Indietro del browser": dipendeva dal Referer HTTP (o dal
+campo nascosto "ritorno" introdotto in v3.8.0 per farlo sopravvivere a
+Precedente/Successivo/Salva e vai al successivo), quindi seguiva
+l'ultima azione dell'utente invece di puntare sempre allo stesso posto
+prevedibile — esattamente il comportamento indesiderato di un
+pulsante "indietro" nella cronologia, non di un link.
+
+**La correzione, radicale**: `_resolve_navigation_context` non guarda
+più NÉ il Referer NÉ un campo "ritorno" per il caso catalogo (il ramo
+`da_viaggio`/viaggio resta invece invariato: quello era già un
+parametro esplicito e deliberato, non un'euristica, e non era la parte
+segnalata come rotta). Quando NON si viene da un viaggio, `return_to`
+è ora SEMPRE `url_for("catalog.items", archiviati=...) +
+f"#item-{item.id}"` — un link fisso e prevedibile, ancorato ESATTAMENTE
+alla riga dell'oggetto di provenienza. Il campo nascosto "ritorno" (e
+tutto il codice che lo leggeva/scriveva) è stato rimosso: non serve
+più, dato che ogni pagina di un oggetto ricalcola da sé il proprio
+link di ritorno corretto, sempre ancorato all'oggetto CORRENTE (anche
+dopo Precedente/Successivo — anzi, è un miglioramento: prima "Torna al
+catalogo" da un oggetto raggiunto per Successivo restava ancorato al
+punto di partenza ORIGINALE, ora si aggiorna correttamente sul nuovo
+oggetto corrente).
+
+**Lo scroll fino al punto giusto lo fa il browser stesso, nativamente,
+tramite l'ancora HTML (`id="item-<id>"` su ogni riga, in
+`items.html`)** — NESSUN meccanismo lato client (sessionStorage,
+`initGenericScrollRestore`) è coinvolto in questo caso specifico: un
+link con `#frammento` è intrinsecamente più affidabile di un Referer
+(che può mancare, essere bloccato da estensioni/policy sulla privacy,
+o riflettere l'ultima azione invece della pagina di provenienza
+originale). `initGenericScrollRestore` (v3.8.0) RESTA comunque utile e
+INVARIATA per altri casi (es. "Categorie", che si ricarica sulla
+stessa identica URL dopo aver salvato una modifica) — le due tecniche
+convivono, ciascuna per il caso a cui è più adatta.
+
+**Due dettagli di rifinitura**, entrambi in `style.css`, scoped a
+`table.catalog-items-table tr[id^="item-"]` (mai alla base
+`simple-table`, per non toccare altre tabelle): `scroll-margin-top:
+76px` (altrimenti la riga finirebbe scorsa esattamente sotto la
+topbar fissa, `min-height:60px`, a filo o parzialmente coperta) e
+un'animazione `:target` (`item-row-highlight`, sfumatura color
+`--brass-100` che svanisce in 2.4s) che evidenzia la riga appena
+raggiunta — puramente CSS, nessun JS, rispetta già la regola globale
+`prefers-reduced-motion` esistente in cima al file.
+
+**Se in futuro aggiungi un'altra pagina che deve "tornare al
+catalogo"**: usa `_resolve_navigation_context(item)` esattamente come
+qui, non reintrodurre un uso di `request.referrer` per questo scopo —
+è esattamente la scelta che ha causato questo bug.
+
+## 4.41. Ordine categorie, "Indossa", Ricalcola completo, verifica isolamento eliminazione (v3.9.0)
+
+**Ordine delle categorie, sia nel catalogo sia nel viaggio.**
+`Category.sort_order` esisteva già ed era già rispettato da entrambe
+le schermate (`catalog.items` e `trips.workspace` ordinano già
+`.order_by(Category.sort_order, ...)`) — mancava però qualunque
+interfaccia per RIORDINARLE a mano (unico caso, tra le entità
+principali dell'app, senza drag-and-drop). Aggiunto in
+`categories.html`: colonna maniglia (`.drag-handle-cell`, nuova regola
+CSS generica per QUALUNQUE tabella con maniglia, non solo
+`catalog-items-table` — quella resta con le sue rifiniture di
+spaziatura specifiche, più specifica e quindi prioritaria), `<tbody
+data-reorderable-categories>`, nuovo endpoint
+`POST /api/riordina-categorie` (mirror esatto di
+`/api/riordina-oggetti`, ma su un unico elenco piatto — le categorie
+non hanno sotto-gruppi), nuova `initCategoryReordering()` in
+`dashboard.js`. **Non richiede alcuna modifica a `catalog.items` o
+`trips.workspace`**: ordinano già per quel campo, il nuovo ordine si
+riflette da solo.
+
+**"Indossa" come posizione predefinita di un oggetto.** Aggiunto
+`LuggageType.INDOSSA` — ma SOLO alle scelte di
+`Item.default_luggage_type` (`LuggageType.POSITION_CHOICES = CHOICES +
+[(INDOSSA, "Indossa")]`), MAI a `LuggageType.CHOICES` usato dal form di
+una valigia REALE (`LuggageForm.tipologia`): non esiste una valigia
+fisica "Indossa" da poter possedere. L'etichetta del campo nel modulo
+di un oggetto (`ItemForm.default_luggage_type`) è stata rinominata da
+"Tipologia di valigia predefinita" a "**Posizione predefinita**" (e
+così pure la colonna nella tabella del catalogo, `items.html`) — per
+restare grammaticalmente compatibile con "Indossa" ("Posizione
+predefinita: Indossa", non "Tipologia di valigia predefinita:
+Indossa"). **Nessuna nuova logica di stato necessaria**: l'app conta
+già `TripItem.indossato_qty` a tutti gli effetti come "pronto" (vedi
+`total_ready_qty`), quindi un oggetto con posizione "Indossa" segnato
+come indossato è già, oggi, correttamente conteggiato. L'unico pezzo
+mancante era l'AVVISO quando invece finisce impacchettato in una
+valigia vera: `TripItem.has_luggage_mismatch` già confrontava
+`Luggage.tipologia != Item.default_luggage_type` — con "indossa" come
+valore, quel confronto fallisce automaticamente per QUALUNQUE valigia
+reale, quindi l'avviso scatta già da solo, gratis, senza toccare
+quella funzione. **Un'unica cosa richiedeva un vero cambiamento**: la
+FRASE dell'avviso era scritta a mano, IN DUE PUNTI DIVERSI (tooltip in
+`workspace.html` E messaggio JSON di `/api/quantita` in
+`api/routes.py`), come `"andrebbe messo nella valigia da {label}"` —
+con "Indossa" come label diventerebbe "andrebbe messo nella valigia da
+indossa", frase senza senso. Centralizzata in una nuova proprietà
+`Item.mismatch_hint`, che sceglie la frase giusta per i due casi, e
+richiamata da entrambi i punti (se aggiungi un TERZO punto che deve
+mostrare questo avviso in futuro, usa questa proprietà, non
+ricostruire la frase a mano una terza volta). Icona di default
+`"shirt"` aggiunta a `User.DEFAULT_LUGGAGE_TYPE_ICONS` (il
+personalizzatore di icone in Impostazioni resta invece hard-coded solo
+su cabina/stiva/zaino: non serve estenderlo, "Indossa" ha già
+un'icona sensata di suo).
+
+**Il pulsante "Ricalcola" ora fa tre cose in più.** Prima chiamava
+SOLO `recompute_automatic_quantities` (aggiorna `target_qty` per gli
+oggetti Fissa/Per giorno, es. dopo aver cambiato le date). Nuova
+`resync_trip_with_catalog(trip, user)` in `utils.py`, chiamata in
+aggiunta dalla route `trips.recompute`: (1) `sync_trip_items` (aggiunge
+gli oggetti nuovi del catalogo — già idempotente, e in realtà gira già
+da sola ad ogni apertura del workspace: richiamarla qui è innocuo, non
+ridondante in modo dannoso); (2) rimuove le `TripItem` il cui oggetto è
+stato nel frattempo archiviato (**bug reale**: restavano lì per
+sempre); (3) riallinea `TripItem.sort_order` di OGNI oggetto del
+viaggio a `Item.sort_order` attuale del catalogo (**bug reale**: un
+oggetto riordinato nel Catalogo DOPO essere stato aggiunto al viaggio
+restava nella vecchia posizione). Tocca SOLO le righe di `user`
+(verificato con un test su un viaggio condiviso). Il pulsante ora
+mostra un `confirm()` prima di procedere (nuovo, dato che può
+eliminare righe, non solo aggiungerle) e un messaggio di riepilogo che
+elenca solo le categorie di modifica effettivamente avvenute.
+
+**Verifica isolamento eliminazione oggetti (richiesta esplicita, "controlla se...").**
+Nessuna modifica di codice necessaria: `Item.owner_id` è già
+per-utente, `catalog.delete_item` già filtra
+`Item.query.filter_by(id=item_id, owner_id=current_user.id)`, e
+`TripItem` garantisce per costruzione (vedi il suo stesso docstring)
+che due collaboratori dello stesso viaggio abbiano SEMPRE righe
+distinte, mai condivise — cancellare l'`Item` di un utente cascata
+(`cascade="all, delete-orphan"`) solo sulle SUE `TripItem`, mai su
+quelle di un altro. Il concetto di "pubblico" (`Item.is_public`) è
+un'ESPORTAZIONE una tantum verso un file JSON di base
+(`export_catalog_as_base`, vedi `importer.py`), non una condivisione
+live: un nuovo utente che lo importa ottiene righe COMPLETAMENTE
+proprie (nuovo `owner_id`), indipendenti da quelle originali fin da
+subito. Aggiunto un test esplicito
+(`test_deleting_item_only_affects_owner_not_shared_trip_collaborators`)
+che lo dimostra concretamente su un viaggio condiviso reale, non solo
+a parole — se in futuro questa garanzia dovesse mai incrinarsi (es.
+introducendo un vero catalogo condiviso tra collaboratori), quel test
+lo segnalerebbe subito.
+
+## 4.40. Ricerca istantanea, eliminazione oggetti archiviati, pagina oggetto unificata (v3.8.0)
+
+Quattro richieste distinte, in ordine di complessità crescente — la
+quarta ha richiesto di ripensare la navigazione tra pagine dell'intero
+catalogo, quindi le altre tre sono documentate brevemente, l'ultima
+per esteso.
+
+**Ricerca in tempo reale nel workspace del viaggio.** Il campo di
+ricerca del pannello "Valigia" era un `<form method="get">`: bisognava
+premere Invio (o ricaricare la pagina) per vedere i risultati — non
+"in tempo reale" come richiesto. Convertita in ricerca puramente
+client-side, esattamente come quella già esistente nella "Lista della
+spesa" (`applyShoppingSearchFilter`): nuova `applyItemSearchFilter` /
+`initItemSearch` in `dashboard.js`, filtro sull'attributo
+`data-item-name` di ogni `.item-row` (aggiunto apposta), classe
+`is-hidden-by-search` per nascondere righe e intere sezioni-categoria
+senza risultati. **Passa automaticamente alla scheda "Tutti"** se il
+testo cercato esiste in una categoria diversa da quella attualmente
+selezionata — altrimenti sembrerebbe "nessun risultato" pur esistendo
+altrove (la vecchia versione, ricaricando l'intera pagina, finiva
+sempre su "Tutti" per costruzione; la nuova doveva replicarlo
+esplicitamente). `app/trips/routes.py::workspace` non filtra più per
+`q` lato server: il parametro resta SOLO per precompilare il campo
+(serve a preservare il testo cercato passando da una pill di stato
+all'altra, che restano navigazioni server-side vere e proprie). Il
+drag-and-drop per riordinare resta sempre attivo durante la ricerca —
+verificato che è sicuro: la lista COMPLETA resta sempre nel DOM (solo
+nascosta via CSS), quindi l'ordine finale inviato al server include
+sempre anche le righe momentaneamente filtrate, nella loro posizione
+invariata.
+
+**Eliminazione definitiva di oggetti archiviati.** Il pulsante
+"Elimina definitivamente" esisteva già in `item_detail.html`, ma era
+bloccato per QUALSIASI oggetto (anche già archiviato) ancora presente
+in dei viaggi passati. `catalog.delete_item` ora permette
+l'eliminazione definitiva di un oggetto ARCHIVIATO anche con uno
+storico di viaggi: la cascata già configurata nel modello
+(`Item.trip_items`, `cascade="all, delete-orphan"`) si occupa di
+ripulire correttamente anche quelle righe. Un oggetto ancora ATTIVO
+(non archiviato) e con storico resta protetto come prima (va prima
+archiviato). Aggiunto anche un pulsante di eliminazione diretto per
+riga nella lista "Vedi archiviati" (`items.html`), per non dover
+aprire ogni oggetto singolarmente.
+
+**"Salva oggetto" torna alla pagina di provenienza, stessa posizione
+di scroll.** Vedi il meccanismo generico `initGenericScrollRestore` in
+`dashboard.js`, descritto nella sezione seguente insieme al resto
+della fusione — le due richieste erano risolvibili solo insieme, dato
+che cambiava radicalmente da dove si "torna" dopo il salvataggio.
+
+### Pagina unica per un oggetto (dettaglio + modifica fuse)
+
+**Il problema:** "Modifica" (pagina `catalog.edit_item`,
+`/oggetti/<id>/modifica`) e "dettaglio" (pagina `catalog.item_detail`,
+`/oggetti/<id>`) erano due pagine SEPARATE che si rimandavano l'un
+l'altra in continuazione — "Modifica" da una portava all'altra,
+"Modelli e dettagli" dall'altra tornava alla prima — troppi click per
+una singola modifica (bug reale segnalato, con screenshot: lo spazio
+vuoto a destra del modulo di modifica, segnato con una X rossa, era il
+suggerimento esplicito di dove mettere il contenuto della pagina
+dettaglio).
+
+**La fusione.** Le due viste Python (`item_detail` e `edit_item`) e i
+due template (`item_detail.html` e `item_form.html`) sono diventati
+UNO: la vista `catalog.item_detail` (`/oggetti/<id>`, ora GET+POST) fa
+tutto quello che facevano prima le due insieme. `item_form.html` è
+stato ELIMINATO. `catalog.edit_item` (`/oggetti/<id>/modifica`) resta
+SOLO come redirect di retrocompatibilità verso `catalog.item_detail`
+(preservando `da_viaggio`/`ritorno` in querystring), per eventuali
+link o segnalibri vecchi — NESSUN codice nell'app punta più lì
+direttamente, è puro fallback.
+
+**Layout (`item_detail.html`, nuova classe CSS `.item-page-layout`):**
+due colonne su desktop — modulo di modifica a sinistra (`max-width:
+560px`, come prima), dettagli (zona pericolosa, modelli, storico nei
+viaggi) a destra — che collassano in una sola colonna sotto gli
+**860px** (stessa soglia "mobile" già usata altrove nell'app per il
+menu hamburger, per coerenza) con il modulo prima e i dettagli sotto.
+**Attivo SOLO per un oggetto esistente**: per "Nuovo oggetto"
+(`item is None`) niente `.item-page-layout`, una sola colonna col solo
+modulo — zona pericolosa/modelli/storico richiedono che l'oggetto
+esista già (serve un ID).
+
+**La card "Automazione quantità" è stata RIMOSSA**, non solo spostata:
+si limitava a ripetere in sola lettura (regola quantità, tipologia
+valigia, peso) campi già editabili proprio accanto, nel modulo — utile
+quando erano due pagine separate, ridondante e un po' assurdo ora che
+sono la stessa pagina. Se in futuro serve di nuovo una vista
+"riepilogo" di quei campi, va ripensata (es. per la stampa), non
+semplicemente riportata indietro: sarebbe di nuovo la stessa
+duplicazione.
+
+**Da dove si torna, dopo aver salvato — il pezzo più delicato.** Tre
+helper nuovi in `app/catalog/routes.py`:
+
+- `_safe_internal_redirect_target(url)` — restituisce `url` SOLO se
+  punta a questo stesso host, altrimenti `None`. Usato ovunque in
+  questo file si segua un Referer per un redirect: un Referer è un
+  header che il browser invia così com'è, quindi in teoria
+  contraffabile da un link costruito ad arte — non va mai usato alla
+  cieca (anche i redirect via Referer già esistenti da PRIMA di questa
+  versione, es. `toggle_archive_item`, ora ci passano attraverso).
+- `_resolve_navigation_context()` — calcola `(from_trip, return_to)`
+  una volta sola: se c'è un parametro esplicito `da_viaggio` (link
+  "Vai alle impostazioni dell'oggetto" dal workspace di un viaggio),
+  quello vince SEMPRE, perché è deliberato, non un'euristica —
+  `return_to` diventa l'URL del workspace di quel viaggio (che ha GIÀ
+  il proprio scroll-restore per-viaggio, v3.7.1, invariato). Altrimenti
+  `return_to` viene dal campo nascosto `ritorno` (che sopravvive a
+  "Salva e vai al successivo"/Precedente/Successivo, portando lo
+  stesso contesto lungo tutta la sequenza) o, alla primissima apertura,
+  dal Referer HTTP — con il catalogo attivo come ripiego finale, mai
+  `None`.
+- `_nav_context_kwargs(from_trip, return_to)` — i parametri
+  (`da_viaggio` oppure `ritorno`, mai entrambi) da riattaccare ai link
+  "Precedente"/"Successivo" e ai redirect interni, per NON perdere il
+  contesto passando da un oggetto all'altro in sequenza. Il modulo
+  principale li porta anche come campi nascosti (`{% for key, value in
+  nav_kwargs.items() %}`), fondamentale perché al POST il Referer del
+  browser sarebbe questa stessa pagina, non più utile.
+
+"Salva oggetto" (il submit normale, non "Salva e vai al successivo")
+ora fa `redirect(return_to)` invece di restare bloccato sulla stessa
+pagina di modifica (comportamento deliberato di v3.6.x, esplicitamente
+superato da questa richiesta). Lato client, **`initGenericScrollRestore`**
+in `dashboard.js` (accanto a `initWorkspaceScrollRestore`, invariata)
+generalizza lo stesso meccanismo (sessionStorage + `beforeunload` +
+ripristino una tantum) a QUALSIASI pagina, usando l'URL COMPLETO
+(percorso + querystring) come chiave invece di un ID di viaggio — si
+disattiva da sola se `[data-main-tabs]` è nel DOM (pagina di un
+viaggio: ha già il proprio meccanismo, più preciso per quel caso
+specifico, perché ignora deliberatamente i filtri nell'URL di
+partenza). Funziona perché il server fa sempre tornare l'utente
+ESATTAMENTE all'URL di partenza, querystring inclusa — se in futuro un
+qualunque redirect "torna a…" ricostruisce l'URL a mano invece di
+riusare quello originale byte per byte, questo meccanismo smette di
+funzionare silenziosamente (la chiave in sessionStorage non
+coinciderebbe più).
+
+Anche le route satellite (`add_variant`, `edit_variant`,
+`delete_variant`, upload/rimozione foto di oggetto e modello) ora
+tornano al Referer (validato) invece che a un URL fisso — così un
+qualunque cambiamento fatto da dentro la pagina di un oggetto (nuovo
+modello, nuova foto) non perde il contesto `da_viaggio`/`ritorno`
+eventualmente presente nell'URL corrente.
+
+**Se in futuro aggiungi un'altra azione che deve "tornare a…" da
+qualche parte in questo file**: usa `_safe_internal_redirect_target`
+sul Referer prima di un qualunque `redirect()`, non aggiungerlo senza.
+Se aggiungi un altro punto di ingresso alla pagina di un oggetto
+(un altro link tipo "Vai alle impostazioni dell'oggetto"), NON serve
+altro codice — basta che il link porti `da_viaggio=<id>` o lasci fare
+al Referer naturale del browser: `_resolve_navigation_context` lo
+raccoglie da solo.
+
+## 4.39. Anteprima foto dei modelli nel viaggio, scroll preservato tornando dalle impostazioni (v3.7.1)
+
+**Bug: l'anteprima/zoom della foto non compariva per un oggetto CON
+modelli, guardato dalla schermata di un viaggio** (funzionava invece
+per un oggetto semplice, senza modelli). Causa: la finestra di scelta
+del modello (`initVariantModal` in `dashboard.js::buildRow`) costruisce
+ogni riga a partire da `data-variants`, generato dal filtro Jinja
+`get_variant_modal_data` (`app/__init__.py`) — quel filtro non aveva
+MAI incluso alcuna informazione sulla foto (né un flag `has_photo`, né
+un URL), quindi la finestra non aveva letteralmente nulla da mostrare,
+anche quando il modello ne aveva una caricata sul serio. **Corretto in
+due punti, non uno solo**: (1) il filtro ora restituisce anche
+`has_photo`/`photo_url` (quest'ultimo da `url_for("catalog.variant_photo_file", ...)`,
+`None` se assente); (2) `buildRow` crea una miniatura `.item-photo-thumb`
+con `data-photo-zoom-trigger` quando `v.has_photo` è vero — riusa
+esattamente lo stesso overlay di zoom già delegato in `app.js` (nessun
+nuovo listener da agganciare). **Se in futuro `get_variant_modal_data`
+guadagna altri campi derivati da `ItemVariant`, ricordati che è
+l'UNICO punto che alimenta quella finestra: qualunque informazione che
+la riga principale dell'oggetto già mostra (qui: la foto) va replicata
+esplicitamente qui, non ereditata automaticamente.** Verificato con un
+test end-to-end via client HTTP reale
+(`test_variant_photo_appears_in_trip_workspace_modal_data` in
+`test_smoke.py`, non solo la funzione del filtro isolata): carica
+davvero una foto, apre il workspace, controlla che `data-variants`
+contenga `has_photo: true` e un `photo_url` che risponde 200 coi byte
+giusti.
+
+**Scroll perso tornando da "Torna al viaggio"**: i link "Torna al
+viaggio" dalle pagine di impostazioni raggiunte da un viaggio (oggetto,
+valigie, condivisione, modifica viaggio) sono navigazioni a PAGINA
+INTERA verso `trips.workspace` — non l'overlay del pannello di
+dettaglio — quindi il workspace si ricaricava sempre da capo, con lo
+scroll che ripartiva dall'inizio anche se prima si era molto più in
+basso (bug reale segnalato). **Corretto con
+`initWorkspaceScrollRestore()` in `dashboard.js`**: salva
+`window.scrollY` in `sessionStorage` (chiave per-viaggio, letta da
+`[data-main-tabs] data-trip-id`) su `beforeunload`, e lo ripristina —
+UNA TANTUM, poi la chiave viene rimossa — al successivo caricamento
+dello stesso viaggio. Se non c'è nulla di salvato (prima apertura,
+arrivo da un altro punto dell'app), il comportamento resta quello di
+sempre: scroll in cima. **Se in futuro aggiungi un'altra pagina di
+impostazioni raggiunta da un viaggio con un proprio "Torna al
+viaggio", non serve toccare nulla di nuovo**: finché il link torna a
+`trips.workspace` con lo stesso `trip_id` (senza parametri aggiuntivi
+nell'URL), il ripristino scatta automaticamente.
+
+**Nota tecnica**: la suite pytest non può eseguire JS reale in un
+browser, quindi questa seconda correzione non ha un test automatico
+nella suite Python. È stata verificata a mano con uno script
+Node/jsdom (`tests/manual_js_checks/verify_workspace_scroll_restore.js`,
+con relativo README nella stessa cartella — non fa parte di CI, va
+eseguito manualmente se tocchi questa funzione in futuro) che simula
+`beforeunload`/ricaricamento pagina e conferma: nessun valore salvato
+→ nessuna chiamata a `scrollTo`; valore salvato → `scrollTo` chiamato
+con quel valore E la chiave rimossa subito dopo.
+
+## 4.38. Modelli per un oggetto nuovo, e foto per oggetti/modelli (v3.7.0)
+
+**Bug del "nuovo oggetto senza modelli"**: `catalog.new_item` reindirizzava
+sempre a `catalog.items` (la lista) dopo il salvataggio — "Modelli e
+dettagli" compare SOLO quando `item` esiste già (`{% if item %}` in
+`item_form.html`), quindi un oggetto appena creato non aveva NESSUN
+percorso diretto per aggiungere modelli, finché non veniva ritrovato
+nella lista e riaperto in modifica. Corretto reindirizzando invece a
+`catalog.edit_item` per lo STESSO oggetto appena creato: la pagina di
+atterraggio mostra già "Modelli e dettagli" (ed ora anche il
+caricamento foto), senza alcun giro in più.
+
+**Foto per oggetti e modelli — un booleano, non il nome del file**:
+`Item.has_photo`/`ItemVariant.has_photo` (non un campo con
+l'estensione, dato che questa può cambiare a ogni ricaricamento — jpg
+sostituito da png, per dire) — il file vive su disco in
+`DATA_DIR/item-photos/{item|variant}_<id>.<ext>`, cercato per
+prefisso al momento di servirlo (`_existing_photo_path`), stesso
+principio già in uso per le copertine dei viaggi
+(`trips/routes.py::_cover_uploads_dir`).
+
+**Un solo visualizzatore a schermo intero, condiviso da OGNI pagina**:
+il markup vive in `base.html` (non in un template specifico), la
+logica in `app.js` (caricato ovunque, a differenza di `dashboard.js`
+che lo è solo su alcune pagine) — usa la DELEGA DEGLI EVENTI (un solo
+ascoltatore su `document`, non uno per miniatura): funziona anche per
+miniature aggiunte DOPO il caricamento della pagina (es. dentro un
+pannello caricato via AJAX), senza dover essere ri-agganciato ogni
+volta. Ogni miniatura è semplicemente `<img data-photo-zoom-trigger>`
+— cliccarla apre l'overlay con la STESSA immagine (niente url
+"miniatura" separata da quella "intera": non c'è generazione di
+thumbnail, il ridimensionamento è solo CSS via `object-fit:cover`).
+
+**Pulizia dei file all'eliminazione**: eliminare un oggetto o un
+modello rimuove ANCHE il file foto corrispondente dal disco (non solo
+la riga dal database) — verificato con un test dedicato che controlla
+il filesystem, non solo lo stato del database.
+
+**Lezione da un falso allarme durante la verifica dal vivo**: un
+`400 CSRF` intermittente durante i test manuali via curl si è rivelato
+un artefatto del MIO script di prova (token riletti da pagine caricate
+in momenti diversi, quindi ormai scaduti/sostituiti da Flask-WTF) — non
+un bug dell'applicazione. Isolare la richiesta di caricamento DA SOLA
+(senza `-L`, leggendo il token da una pagina appena ricaricata) ha
+confermato una risposta 302 pulita. **Quando un test manuale mostra un
+errore intermittente legato a token/sessione, verificare PRIMA se il
+test stesso sta riusando dati ormai scaduti, prima di sospettare
+l'applicazione.**
+
 
 **`app/seed_data/catalogo_base.json` esiste davvero da questa
 versione**: fino ad ora era solo un meccanismo pronto ma mai usato (il

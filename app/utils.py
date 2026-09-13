@@ -233,6 +233,62 @@ def recompute_automatic_quantities(trip: Trip, user: User) -> int:
     return updated
 
 
+def resync_trip_with_catalog(trip: Trip, user: User) -> dict:
+    """
+    Tutto quello che il pulsante "Ricalcola" del workspace di un viaggio
+    fa OLTRE al ricalcolo delle quantità automatiche (vedi
+    recompute_automatic_quantities qui sopra, chiamata separatamente
+    dalla route — le due cose restano funzioni distinte perché
+    rispondono a domande diverse: "quanti me ne servono" qui sopra,
+    "quali oggetti ci sono e in che ordine" qui sotto):
+
+    1. aggiunge gli oggetti nuovi del catalogo (sync_trip_items, già
+       idempotente — normalmente avviene già da sola ad ogni apertura
+       del workspace, richiamarla qui è innocuo);
+    2. rimuove dal viaggio quelli il cui oggetto di catalogo è stato
+       nel frattempo archiviato (bug reale segnalato: restavano lì
+       per sempre, anche una volta archiviati);
+    3. riallinea l'ordine di TUTTI gli oggetti del viaggio a quello
+       attuale del catalogo (un oggetto riordinato nel Catalogo DOPO
+       essere stato aggiunto al viaggio restava nella vecchia
+       posizione finché non lo si trascinava a mano anche qui — bug
+       reale segnalato).
+
+    Tocca SOLO i TripItem di `user` (mai quelli di altri collaboratori
+    dello stesso viaggio, che restano indipendenti — vedi il docstring
+    di TripItem). Ritorna un dizionario di conteggi per il messaggio di
+    conferma mostrato all'utente.
+    """
+    ids_before = {
+        ti.item_id for ti in TripItem.query.filter_by(trip_id=trip.id, user_id=user.id).all()
+    }
+
+    sync_trip_items(trip, user)
+
+    trip_items = (
+        TripItem.query.filter_by(trip_id=trip.id, user_id=user.id).join(Item).all()
+    )
+    added = len({ti.item_id for ti in trip_items} - ids_before)
+
+    removed = 0
+    still_present = []
+    for ti in trip_items:
+        if ti.item.archived:
+            db.session.delete(ti)
+            removed += 1
+        else:
+            still_present.append(ti)
+
+    reordered = 0
+    for ti in still_present:
+        if ti.sort_order != ti.item.sort_order:
+            ti.sort_order = ti.item.sort_order
+            reordered += 1
+
+    db.session.commit()
+    return {"added": added, "removed": removed, "reordered": reordered}
+
+
 def ensure_default_trip_luggages(trip: Trip, user: User) -> None:
     """
     Se `user` non ha ancora nessuna valigia attiva su questo viaggio,

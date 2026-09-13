@@ -102,7 +102,7 @@ class User(UserMixin, db.Model):
         self.table_column_widths_json = json.dumps(data)
 
     DEFAULT_QUANTITY_RULE_ICONS = {"fixed": "hash", "per_day": "repeat", "manual": "hand"}
-    DEFAULT_LUGGAGE_TYPE_ICONS = {"cabina": "briefcase", "stiva": "package", "zaino": "backpack"}
+    DEFAULT_LUGGAGE_TYPE_ICONS = {"cabina": "briefcase", "stiva": "package", "zaino": "backpack", "indossa": "shirt"}
 
     def _icon_prefs(self) -> dict:
         import json
@@ -221,18 +221,36 @@ class Category(db.Model):
 # ---------------------------------------------------------------------------
 class LuggageType:
     """
-    Le tre tipologie di valigia riconosciute dall'app. L'ordine di questa
+    Le tre tipologie di valigia REALI riconosciute dall'app (quelle che
+    puoi possedere davvero — vedi Luggage.tipologia). L'ordine di questa
     lista è anche l'ordine di visualizzazione richiesto nella schermata
     di viaggio (cabina, poi stiva, poi zaino).
+
+    INDOSSA non è una di queste: non esiste una valigia "Indossa" da
+    possedere, quindi NON compare in CHOICES/ORDER (usate per il form di
+    una valigia reale, vedi forms.py::LuggageForm, e per l'ordinamento
+    delle valigie di un viaggio). È comunque un valore legittimo per
+    Item.default_luggage_type (la "posizione predefinita" di un
+    oggetto — vedi forms.py::ItemForm), aggiunto separatamente a quella
+    lista di scelte: un oggetto la cui posizione predefinita è
+    "indossa" ottiene già gratuitamente, tramite has_luggage_mismatch
+    qui sotto, l'avviso se finisce impacchettato in una valigia vera
+    invece che segnato come indossato (TripItem.indossato_qty, che
+    conta già a tutti gli effetti come "pronto" — vedi total_ready_qty).
     """
 
     CABINA = "cabina"
     STIVA = "stiva"
     ZAINO = "zaino"
+    INDOSSA = "indossa"
 
     CHOICES = [(CABINA, "Cabina"), (STIVA, "Stiva"), (ZAINO, "Zaino")]
     ORDER = [CABINA, STIVA, ZAINO]
-    LABELS = {CABINA: "Cabina", STIVA: "Stiva", ZAINO: "Zaino"}
+    LABELS = {CABINA: "Cabina", STIVA: "Stiva", ZAINO: "Zaino", INDOSSA: "Indossa"}
+
+    # Scelte per Item.default_luggage_type ("posizione predefinita"):
+    # le tre valigie reali PIÙ "Indossa".
+    POSITION_CHOICES = CHOICES + [(INDOSSA, "Indossa")]
 
     @classmethod
     def sort_key(cls, tipologia: str) -> int:
@@ -334,6 +352,21 @@ class Item(db.Model):
     def default_luggage_type_label(self) -> str:
         return LuggageType.LABELS.get(self.default_luggage_type, self.default_luggage_type or "")
 
+    @property
+    def mismatch_hint(self) -> str:
+        """
+        Frase per l'avviso "posizione predefinita diversa da dove hai
+        effettivamente messo l'oggetto" (vedi TripItem.has_luggage_mismatch),
+        con la grammatica giusta sia per una valigia reale ("andrebbe
+        messo nella valigia da Stiva") sia per "Indossa" ("andrebbe
+        indossato, non messo in valigia") — le due frasi non sono
+        intercambiabili, "andrebbe messo nella valigia da indossa"
+        non si può dire.
+        """
+        if self.default_luggage_type == LuggageType.INDOSSA:
+            return "andrebbe indossato, non messo in valigia"
+        return f"andrebbe messo nella valigia da {self.default_luggage_type_label.lower()}"
+
     weight_grams = db.Column(db.Float, nullable=True)
 
     # Ordine manuale (trascinamento) all'interno della propria categoria,
@@ -345,6 +378,21 @@ class Item(db.Model):
     notes = db.Column(db.Text, default="", nullable=False)
     archived = db.Column(db.Boolean, default=False, nullable=False)
     is_public = db.Column(db.Boolean, default=False, nullable=False)
+    # Vera se è stata caricata una foto per questo oggetto (il file
+    # vive su disco, in DATA_DIR/item-photos/item_<id>.<ext> — vedi
+    # catalog/routes.py::upload_item_photo). Un booleano invece del
+    # nome del file: l'estensione può cambiare a ogni ricaricamento
+    # (jpg sostituito da png, per dire), quindi si cerca sul disco al
+    # momento di servirla, non si tiene il nome esatto in database.
+    has_photo = db.Column(db.Boolean, default=False, nullable=False)
+    # Icona Lucide (lucide.dev) a scelta libera — come Category.icon,
+    # mai un menu a tendina curato — mostrata al posto dell'icona
+    # generica "immagine" quando l'oggetto NON ha una foto caricata
+    # (le due cose sono alternative: la foto, se c'è, ha sempre la
+    # precedenza — vedi item_detail.html e ovunque compare una
+    # miniatura). Nullable: la maggior parte degli oggetti non ne
+    # avrà bisogno (foto già sufficiente, o nessuna delle due).
+    icon = db.Column(db.String(40), nullable=True)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -389,6 +437,7 @@ class ItemVariant(db.Model):
     # in un dato viaggio: quello è TripItemVariantQty.quantity).
     owned_qty = db.Column(db.Integer, default=1, nullable=False)
     sort_order = db.Column(db.Integer, default=0, nullable=False)
+    has_photo = db.Column(db.Boolean, default=False, nullable=False)
 
     item = db.relationship("Item", back_populates="variants")
     trip_quantities = db.relationship(

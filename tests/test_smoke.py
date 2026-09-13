@@ -26,7 +26,7 @@ from app.models import (
 )
 from app.utils import (
     compute_auto_quantity, sync_trip_items, ensure_default_trip_luggages,
-    recompute_automatic_quantities, trip_stats, provision_new_user_defaults,
+    recompute_automatic_quantities, resync_trip_with_catalog, trip_stats, provision_new_user_defaults,
     accessible_trips_query, trip_shopping_summary, user_trip_luggages,
     luggage_display_labels,
 )
@@ -206,6 +206,70 @@ def test_shared_trip_gives_each_collaborator_an_independent_packing_list(app):
         assert {tl.id for tl in admin_luggages}.isdisjoint({tl.id for tl in second_luggages})
 
 
+def test_deleting_item_only_affects_owner_not_shared_trip_collaborators(app):
+    """
+    Verifica esplicita richiesta dall'utente: eliminare un oggetto dal
+    proprio catalogo elimina SOLO per chi lo elimina, non per tutti —
+    nemmeno per un collaboratore dello STESSO viaggio condiviso, che ha
+    un proprio oggetto (con lo stesso nome) completamente indipendente
+    (per costruzione: vedi TripItem, ogni collaboratore fa sempre
+    riferimento a un Item diverso, mai condiviso). Copre sia
+    l'archiviazione (che non tocca comunque il DB di nessuno) sia
+    l'eliminazione DEFINITIVA (che invece cancella righe dal DB — è lì
+    che un bug di isolamento sarebbe più pericoloso).
+    """
+    with app.app_context():
+        admin = User.query.first()
+        second = _make_second_user(app)
+        trip = _make_trip(admin, days=4)
+        db.session.add(TripShare(trip_id=trip.id, user_id=second.id))
+        db.session.commit()
+
+        sync_trip_items(trip, admin)
+        ensure_default_trip_luggages(trip, second)
+        sync_trip_items(trip, second)
+
+        admin_ti = next(ti for ti in trip.trip_items if ti.user_id == admin.id)
+        shared_name = admin_ti.item.name
+        admin_item_id = admin_ti.item_id
+        second_ti = next(
+            ti for ti in trip.trip_items if ti.user_id == second.id and ti.item.name == shared_name
+        )
+        second_item_id = second_ti.item_id
+        assert admin_item_id != second_item_id  # oggetti diversi, per costruzione
+
+        admin_id, second_id = admin.id, second.id
+        trip_id = trip.id
+
+    # L'admin elimina DEFINITIVAMENTE il proprio oggetto (deve prima
+    # archiviarlo: vedi catalog.delete_item).
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+    client.post(f"/catalogo/oggetti/{admin_item_id}/archivia", follow_redirects=True)
+    resp = client.post(f"/catalogo/oggetti/{admin_item_id}/elimina", follow_redirects=True)
+    assert "eliminato definitivamente" in resp.data.decode("utf-8")
+
+    with app.app_context():
+        # L'oggetto dell'admin (e la sua riga in questo viaggio) è sparito...
+        assert Item.query.get(admin_item_id) is None
+        assert TripItem.query.filter_by(item_id=admin_item_id).first() is None
+
+        # ...ma l'oggetto OMONIMO del collaboratore, e la sua riga nello
+        # STESSO viaggio, restano intatti: l'eliminazione non ha
+        # attraversato l'isolamento per-utente.
+        second_item_still_there = Item.query.get(second_item_id)
+        assert second_item_still_there is not None
+        assert second_item_still_there.owner_id == second_id
+        second_ti_still_there = TripItem.query.filter_by(item_id=second_item_id, user_id=second_id).first()
+        assert second_ti_still_there is not None
+        assert second_ti_still_there.trip_id == trip_id
+
+
 def test_trip_share_grants_access_but_not_ownership(app):
     with app.app_context():
         admin = User.query.first()
@@ -284,6 +348,122 @@ def test_recompute_updates_target_only_never_luggage_quantity(app):
         assert ti.total_qty == 2    # INVARIATO: mai toccato dal ricalcolo
 
 
+def test_resync_trip_with_catalog_adds_reorders_and_removes_archived(app):
+    """
+    Richiesta esplicita: il pulsante "Ricalcola" deve, oltre al
+    ricalcolo delle quantità (già coperto dal test precedente),
+    aggiungere gli oggetti nuovi del catalogo, rimuovere quelli nel
+    frattempo archiviati, e riallineare l'ordine di TUTTI gli oggetti
+    del viaggio a quello attuale del catalogo.
+    """
+    with app.app_context():
+        admin = User.query.first()
+        cat = Category.query.filter_by(owner_id=admin.id).first()
+        a = Item(owner_id=admin.id, name="Ricalcola A", category_id=cat.id, sort_order=0)
+        b = Item(owner_id=admin.id, name="Ricalcola B", category_id=cat.id, sort_order=1)
+        db.session.add_all([a, b])
+        db.session.commit()
+        a_id, b_id = a.id, b.id
+
+        trip = _make_trip(admin, days=3)
+        sync_trip_items(trip, admin)
+        ti_a = TripItem.query.filter_by(trip_id=trip.id, item_id=a_id).first()
+        ti_b = TripItem.query.filter_by(trip_id=trip.id, item_id=b_id).first()
+        assert ti_a is not None and ti_b is not None
+        assert ti_a.sort_order == 0 and ti_b.sort_order == 1
+
+        # Un terzo oggetto viene aggiunto al catalogo DOPO la sincronizzazione
+        # del viaggio: non c'è ancora nessuna riga per lui in questo viaggio.
+        c = Item(owner_id=admin.id, name="Ricalcola C (nuovo)", category_id=cat.id, sort_order=2)
+        db.session.add(c)
+        db.session.commit()
+        c_id = c.id
+        assert TripItem.query.filter_by(trip_id=trip.id, item_id=c_id).first() is None
+
+        # B viene archiviato dal catalogo DOPO essere già stato aggiunto al viaggio.
+        b_obj = Item.query.get(b_id)
+        b_obj.archived = True
+        # A viene spostato dopo C nell'ordine del catalogo.
+        a_obj = Item.query.get(a_id)
+        a_obj.sort_order = 5
+        c_obj = Item.query.get(c_id)
+        c_obj.sort_order = 1
+        db.session.commit()
+
+        result = resync_trip_with_catalog(trip, admin)
+        assert result == {"added": 1, "removed": 1, "reordered": 1}
+
+        assert TripItem.query.filter_by(trip_id=trip.id, item_id=b_id).first() is None  # rimosso
+        ti_c = TripItem.query.filter_by(trip_id=trip.id, item_id=c_id).first()
+        assert ti_c is not None and ti_c.sort_order == 1  # aggiunto, ordine del catalogo
+        ti_a_refreshed = TripItem.query.filter_by(trip_id=trip.id, item_id=a_id).first()
+        assert ti_a_refreshed.sort_order == 5  # riallineato
+
+        # Richiamarlo di nuovo non cambia più nulla (idempotente).
+        assert resync_trip_with_catalog(trip, admin) == {"added": 0, "removed": 0, "reordered": 0}
+
+
+def test_resync_trip_with_catalog_only_touches_own_trip_items(app):
+    """Su un viaggio condiviso, resync_trip_with_catalog per un utente non deve mai toccare le righe dell'altro."""
+    with app.app_context():
+        admin = User.query.first()
+        second = _make_second_user(app)
+        trip = _make_trip(admin, days=3)
+        db.session.add(TripShare(trip_id=trip.id, user_id=second.id))
+        db.session.commit()
+
+        sync_trip_items(trip, admin)
+        ensure_default_trip_luggages(trip, second)
+        sync_trip_items(trip, second)
+
+        second_ids_before = {ti.id for ti in trip.trip_items if ti.user_id == second.id}
+        second_sort_orders_before = {ti.id: ti.sort_order for ti in trip.trip_items if ti.user_id == second.id}
+
+        # L'admin archivia uno dei SUOI oggetti e richiama il resync.
+        admin_item = next(ti.item for ti in trip.trip_items if ti.user_id == admin.id)
+        admin_item.archived = True
+        db.session.commit()
+        resync_trip_with_catalog(trip, admin)
+
+        second_ids_after = {ti.id for ti in trip.trip_items if ti.user_id == second.id}
+        second_sort_orders_after = {ti.id: ti.sort_order for ti in trip.trip_items if ti.user_id == second.id}
+        assert second_ids_after == second_ids_before
+        assert second_sort_orders_after == second_sort_orders_before
+
+
+def test_ricalcola_route_flash_message_summarizes_all_changes(app):
+    """Verifica end-to-end via HTTP: il pulsante Ricalcola nel workspace del viaggio applica tutte le modifiche e lo riporta lì."""
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+    with app.app_context():
+        admin = User.query.first()
+        cat = Category.query.filter_by(owner_id=admin.id).first()
+        stale = Item(owner_id=admin.id, name="Da rimuovere con Ricalcola", category_id=cat.id)
+        db.session.add(stale)
+        db.session.commit()
+        trip = _make_trip(admin, days=3)
+        trip_id = trip.id
+        sync_trip_items(trip, admin)
+        stale.archived = True
+        fresh = Item(owner_id=admin.id, name="Da aggiungere con Ricalcola", category_id=cat.id)
+        db.session.add(fresh)
+        db.session.commit()
+
+    resp = client.post(f"/viaggi/{trip_id}/ricalcola", follow_redirects=True)
+    body = resp.data.decode("utf-8")
+    assert "oggetti aggiunti dal catalogo" in body
+    assert "oggetti rimossi" in body
+
+    with app.app_context():
+        assert "Da aggiungere con Ricalcola" in [ti.item.name for ti in TripItem.query.filter_by(trip_id=trip_id).all()]
+        assert "Da rimuovere con Ricalcola" not in [ti.item.name for ti in TripItem.query.filter_by(trip_id=trip_id).all()]
+
+
 def test_trip_stats_includes_weight_per_luggage(app):
     with app.app_context():
         admin = User.query.first()
@@ -345,7 +525,7 @@ def test_decimal_comma_float_field_follows_italian_convention(app):
     with app.test_request_context(
         method="POST",
         data={
-            "name": "Laptop", "category_id": str(cat.id), "quantity_rule": "manual",
+            "item_title": "Laptop", "category_id": str(cat.id), "quantity_rule": "manual",
             "fixed_qty": "1", "per_day_extra": "1", "default_luggage_type": "",
             "weight_grams": "1.500", "notes": "",
         },
@@ -736,6 +916,83 @@ def test_mismatch_info_included_in_quantity_payload(app):
         assert "stiva" in payload["mismatch_message"].lower()
 
 
+def test_indossa_is_a_position_choice_not_a_real_luggage_type(app):
+    """
+    Richiesta esplicita: "Indossa" va aggiunto SOLO alle scelte di
+    posizione predefinita di un oggetto (Item.default_luggage_type) —
+    non esiste una valigia reale "Indossa" da poter possedere, quindi
+    NON deve comparire tra le scelte del form per creare/modificare una
+    valigia (LuggageForm.tipologia, che usa LuggageType.CHOICES).
+    """
+    assert LuggageType.INDOSSA == "indossa"
+    assert LuggageType.INDOSSA not in dict(LuggageType.CHOICES)
+    assert LuggageType.INDOSSA in dict(LuggageType.POSITION_CHOICES)
+    assert LuggageType.LABELS[LuggageType.INDOSSA] == "Indossa"
+
+    with app.app_context():
+        from app.forms import LuggageForm, ItemForm
+        assert "indossa" not in dict(LuggageForm().tipologia.choices)
+        assert "indossa" in dict(ItemForm().default_luggage_type.choices)
+
+
+def test_item_mismatch_hint_grammatically_correct_for_indossa_and_real_luggage(app):
+    """
+    Bug reale potenziale, corretto preventivamente: la frase per
+    l'avviso "posizione sbagliata" era costruita a mano in DUE punti
+    (tooltip del workspace e messaggio di /api/quantita) come "andrebbe
+    messo nella valigia da {label}" — con "Indossa" come label
+    diventerebbe "andrebbe messo nella valigia da indossa", che non ha
+    senso. Item.mismatch_hint centralizza la frase giusta per entrambi
+    i casi, usata da entrambi i punti.
+    """
+    with app.app_context():
+        admin = User.query.first()
+        cat = Category.query.filter_by(owner_id=admin.id).first()
+        real = Item(owner_id=admin.id, name="Cappello", category_id=cat.id, default_luggage_type=LuggageType.STIVA)
+        indossa = Item(owner_id=admin.id, name="Giacca pesante", category_id=cat.id, default_luggage_type=LuggageType.INDOSSA)
+        db.session.add_all([real, indossa])
+        db.session.commit()
+
+        assert real.mismatch_hint == "andrebbe messo nella valigia da stiva"
+        assert indossa.mismatch_hint == "andrebbe indossato, non messo in valigia"
+        assert "valigia da indossa" not in indossa.mismatch_hint
+
+
+def test_indossa_position_warns_only_if_packed_not_if_worn(app):
+    """
+    "Va conteggiato nella schermata del viaggio come oggetto da
+    indossare": un oggetto con posizione predefinita "Indossa" sfrutta
+    il meccanismo già esistente di TripItem.indossato_qty (che conta
+    già a tutti gli effetti come "pronto", vedi total_ready_qty) — se
+    lo segni come indossato NON scatta alcun avviso, ma se lo metti
+    comunque in una valigia vera sì (has_luggage_mismatch), esattamente
+    come per qualunque altra posizione predefinita.
+    """
+    with app.app_context():
+        admin = User.query.first()
+        cat = Category.query.filter_by(owner_id=admin.id).first()
+        item = Item(owner_id=admin.id, name="Giacca pesante", category_id=cat.id, default_luggage_type=LuggageType.INDOSSA)
+        db.session.add(item)
+        db.session.commit()
+
+        trip = _make_trip(admin, days=3)
+        sync_trip_items(trip, admin)
+        ti = next(t for t in trip.trip_items if t.item_id == item.id)
+        cabina_tl = next(tl for tl in trip.trip_luggages if tl.luggage.tipologia == LuggageType.CABINA)
+
+        # Segnato come indossato: nessun avviso, e conta come pronto.
+        ti.indossato_qty = 1
+        db.session.commit()
+        assert ti.has_luggage_mismatch(cabina_tl.id) is False
+        assert ti.total_ready_qty == 1
+
+        # Messo (anche) in una valigia vera: avviso.
+        qty_row = next(q for q in ti.quantities if q.trip_luggage_id == cabina_tl.id)
+        qty_row.quantity = 1
+        db.session.commit()
+        assert ti.has_luggage_mismatch(cabina_tl.id) is True
+
+
 def test_shared_luggage_lets_other_collaborator_add_own_items_and_sums_weight(app):
     """
     Nuova funzione: il proprietario di una valigia la condivide con un
@@ -861,7 +1118,13 @@ def test_cover_search_uses_custom_terms(app, monkeypatch):
 
 
 def test_item_edit_prev_next_navigation(app):
-    """Precedente/successivo naviga tra oggetti della STESSA categoria, nascosti agli estremi; Salva resta sulla pagina di modifica."""
+    """
+    Precedente/successivo naviga tra oggetti della STESSA categoria,
+    nascosti agli estremi. "Salva oggetto" torna SEMPRE al catalogo
+    (mai un Referer/una cronologia da indovinare), ancorato alla riga
+    esatta dell'oggetto — vedi catalog.item_detail per il
+    comportamento completo.
+    """
     with app.app_context():
         admin = User.query.first()
         cat = Category(owner_id=admin.id, name="Categoria di prova", sort_order=999)
@@ -883,31 +1146,36 @@ def test_item_edit_prev_next_navigation(app):
     )
 
     # Il primo non ha "precedente", ha "successivo".
-    resp = client.get(f"/catalogo/oggetti/{a_id}/modifica")
+    resp = client.get(f"/catalogo/oggetti/{a_id}")
     html = resp.data.decode("utf-8")
-    assert f"/catalogo/oggetti/{b_id}/modifica" in html
+    assert f"/catalogo/oggetti/{b_id}" in html
     assert "Precedente" not in html
 
     # Quello di mezzo ha entrambi.
-    resp = client.get(f"/catalogo/oggetti/{b_id}/modifica")
+    resp = client.get(f"/catalogo/oggetti/{b_id}")
     html = resp.data.decode("utf-8")
-    assert f"/catalogo/oggetti/{a_id}/modifica" in html
-    assert f"/catalogo/oggetti/{c_id}/modifica" in html
+    assert f"/catalogo/oggetti/{a_id}" in html
+    assert f"/catalogo/oggetti/{c_id}" in html
 
     # L'ultimo ha "precedente" ma non "successivo".
-    resp = client.get(f"/catalogo/oggetti/{c_id}/modifica")
+    resp = client.get(f"/catalogo/oggetti/{c_id}")
     html = resp.data.decode("utf-8")
-    assert f"/catalogo/oggetti/{b_id}/modifica" in html
+    assert f"/catalogo/oggetti/{b_id}" in html
     assert "Successivo" not in html
 
-    # Salvare resta sulla pagina di modifica (non porta al dettaglio).
+    # "Salva oggetto" (senza un contesto di viaggio esplicito) torna al
+    # catalogo, ancorato esattamente alla riga di QUESTO oggetto — un
+    # link fisso, non più una supposizione basata sul Referer/sulla
+    # cronologia (bug reale segnalato: "si comporta come il pulsante
+    # Indietro del browser") — non più bloccato sulla pagina di
+    # modifica stessa.
     resp = client.post(
-        f"/catalogo/oggetti/{b_id}/modifica",
-        data={"name": "Beta modificato", "category_id": str(cat_id), "quantity_rule": "manual",
+        f"/catalogo/oggetti/{b_id}",
+        data={"item_title": "Beta modificato", "category_id": str(cat_id), "quantity_rule": "manual",
               "fixed_qty": "1", "per_day_extra": "1", "default_luggage_type": "", "weight_grams": "", "notes": ""},
     )
     assert resp.status_code == 302
-    assert resp.headers["Location"].endswith(f"/catalogo/oggetti/{b_id}/modifica")
+    assert resp.headers["Location"] == f"/catalogo/oggetti#item-{b_id}"
 
 
 def test_item_detail_shows_back_to_trip_button_only_with_valid_param(app):
@@ -1473,6 +1741,82 @@ def test_catalog_reorder_endpoint_changes_item_sort_order(app):
     with app.app_context():
         assert Item.query.get(b_id).sort_order == 0
         assert Item.query.get(a_id).sort_order == 1
+
+
+def test_category_reorder_endpoint_changes_sort_order_and_is_reflected_everywhere(app):
+    """
+    Bug reale segnalato: non c'era alcun modo di riordinare le
+    categorie a mano (a differenza degli oggetti). Verifica l'endpoint
+    di trascinamento (Category.sort_order) e che il nuovo ordine sia
+    rispettato SIA dal catalogo SIA dal workspace di un viaggio — le
+    due schermate ordinano già entrambe per questo stesso campo, quindi
+    un solo cambiamento qui basta per entrambe.
+    """
+    with app.app_context():
+        admin = User.query.first()
+        cat_a = Category(owner_id=admin.id, name="Categoria Alfa", sort_order=100)
+        cat_b = Category(owner_id=admin.id, name="Categoria Beta", sort_order=101)
+        db.session.add_all([cat_a, cat_b])
+        db.session.commit()
+        cat_a_id, cat_b_id = cat_a.id, cat_b.id
+        item_a = Item(owner_id=admin.id, name="Oggetto in Alfa", category_id=cat_a_id)
+        item_b = Item(owner_id=admin.id, name="Oggetto in Beta", category_id=cat_b_id)
+        db.session.add_all([item_a, item_b])
+        db.session.commit()
+        trip = _make_trip(admin, days=2)
+        trip_id = trip.id
+        sync_trip_items(trip, admin)
+
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+
+    # Prima di riordinare: Alfa (100) viene prima di Beta (101) ovunque.
+    catalog_before = client.get("/catalogo/oggetti").data.decode("utf-8")
+    assert catalog_before.index("Categoria Alfa") < catalog_before.index("Categoria Beta")
+    workspace_before = client.get(f"/viaggi/{trip_id}").data.decode("utf-8")
+    assert workspace_before.index("Categoria Alfa") < workspace_before.index("Categoria Beta")
+
+    # Si trascina Beta prima di Alfa.
+    resp = client.post("/api/riordina-categorie", json={"category_ids": [cat_b_id, cat_a_id]})
+    assert resp.get_json()["ok"] is True
+
+    with app.app_context():
+        assert Category.query.get(cat_b_id).sort_order == 0
+        assert Category.query.get(cat_a_id).sort_order == 1
+
+    catalog_after = client.get("/catalogo/oggetti").data.decode("utf-8")
+    assert catalog_after.index("Categoria Beta") < catalog_after.index("Categoria Alfa")
+    workspace_after = client.get(f"/viaggi/{trip_id}").data.decode("utf-8")
+    assert workspace_after.index("Categoria Beta") < workspace_after.index("Categoria Alfa")
+
+
+def test_category_reorder_endpoint_rejects_other_users_categories(app):
+    """Non si può riordinare una categoria altrui passandone l'id all'endpoint."""
+    with app.app_context():
+        admin = User.query.first()
+        second = _make_second_user(app)
+        foreign_cat = Category(owner_id=second.id, name="Categoria altrui", sort_order=0)
+        db.session.add(foreign_cat)
+        db.session.commit()
+        foreign_cat_id = foreign_cat.id
+        own_cat = Category.query.filter_by(owner_id=admin.id).first()
+        own_cat_id = own_cat.id
+
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+    resp = client.post("/api/riordina-categorie", json={"category_ids": [foreign_cat_id, own_cat_id]})
+    assert resp.status_code == 400
+    assert resp.get_json()["ok"] is False
 
 
 def test_nav_order_saved_and_reflected_in_page(app):
@@ -2263,3 +2607,801 @@ def test_toolbar_has_bottom_spacing(app):
     idx = css.find(".toolbar {")
     block = css[idx:css.find("}", idx)]
     assert "margin-bottom" in block
+
+
+def test_new_item_redirects_to_edit_page_not_list(app):
+    """
+    Bug reale corretto: creare un nuovo oggetto portava alla LISTA del
+    catalogo, senza alcun modo di aggiungere modelli finché non lo si
+    riapriva in modifica — un giro inutile ("Modelli e dettagli"
+    compare SOLO quando l'oggetto esiste già). Ora l'oggetto appena
+    creato riporta DIRETTAMENTE alla propria pagina di modifica, dove
+    "Modelli e dettagli" è già disponibile.
+    """
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+    with app.app_context():
+        cat = Category.query.first()
+        cat_id = cat.id
+
+    resp = client.post("/catalogo/oggetti/nuovo", data={
+        "item_title": "Oggetto redirect test", "category_id": cat_id, "quantity_rule": "manual",
+        "fixed_qty": 1, "per_day_extra": 1, "default_luggage_type": "", "weight_grams": "", "notes": "",
+    }, follow_redirects=False)
+    assert resp.status_code == 302
+    with app.app_context():
+        new_item = Item.query.filter_by(name="Oggetto redirect test").first()
+        assert new_item is not None
+    # La pagina UNICA di un oggetto (vedi catalog.item_detail: non
+    # esiste più una pagina "/modifica" separata) — eventuali parametri
+    # di navigazione (qui: "ritorno", assente Referer/contesto viaggio)
+    # possono seguire in querystring, quindi si controlla il percorso.
+    from urllib.parse import urlparse
+    assert urlparse(resp.location).path == f"/catalogo/oggetti/{new_item.id}"
+
+    # E la pagina di atterraggio mostra davvero la sezione "Modelli" e il caricamento foto.
+    landing = client.get(resp.location)
+    body = landing.data.decode("utf-8")
+    assert "Modelli" in body
+    assert "Aggiungi una foto" in body
+
+
+def test_item_photo_upload_serve_and_delete(app, tmp_path, monkeypatch):
+    """Caricare, servire e rimuovere la foto di un oggetto — vedi anche la verifica dal vivo (byte-per-byte) fatta separatamente."""
+    monkeypatch.setattr("app.config.DATA_DIR", tmp_path)
+
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+    with app.app_context():
+        admin = User.query.first()
+        cat = Category.query.filter_by(owner_id=admin.id).first()
+        item = Item(owner_id=admin.id, name="Oggetto con foto", category_id=cat.id)
+        db.session.add(item)
+        db.session.commit()
+        item_id = item.id
+
+    import io
+    fake_image = io.BytesIO(b"\xff\xd8\xff\xe0" + b"0" * 100)  # intestazione JPEG minima + riempimento
+
+    resp = client.post(
+        f"/catalogo/oggetti/{item_id}/foto/carica",
+        data={"photo_file": (fake_image, "foto.jpg")},
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert "Foto caricata" in resp.data.decode("utf-8")
+
+    with app.app_context():
+        assert Item.query.get(item_id).has_photo is True
+
+    resp2 = client.get(f"/catalogo/oggetti/{item_id}/foto")
+    assert resp2.status_code == 200
+    assert resp2.data.startswith(b"\xff\xd8\xff\xe0")
+
+    # Un formato non consentito viene rifiutato con un messaggio chiaro, non un errore del server.
+    resp3 = client.post(
+        f"/catalogo/oggetti/{item_id}/foto/carica",
+        data={"photo_file": (io.BytesIO(b"contenuto qualsiasi"), "documento.pdf")},
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    assert "Formato non supportato" in resp3.data.decode("utf-8")
+
+    resp4 = client.post(f"/catalogo/oggetti/{item_id}/foto/rimuovi", follow_redirects=True)
+    assert "Foto rimossa" in resp4.data.decode("utf-8")
+    with app.app_context():
+        assert Item.query.get(item_id).has_photo is False
+    assert client.get(f"/catalogo/oggetti/{item_id}/foto").status_code == 404
+
+
+def test_variant_photo_upload_and_cleanup_on_delete(app, tmp_path, monkeypatch):
+    """Caricare la foto di un modello, e verificare che eliminare il modello (o l'oggetto) rimuova anche il file dal disco."""
+    monkeypatch.setattr("app.config.DATA_DIR", tmp_path)
+
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+    with app.app_context():
+        admin = User.query.first()
+        cat = Category.query.filter_by(owner_id=admin.id).first()
+        item = Item(owner_id=admin.id, name="Oggetto con modello fotografato", category_id=cat.id)
+        db.session.add(item)
+        db.session.commit()
+        variant = ItemVariant(item_id=item.id, description="Modello fotografato", weight_grams=100, owned_qty=1)
+        db.session.add(variant)
+        db.session.commit()
+        item_id, variant_id = item.id, variant.id
+
+    import io
+    fake_image = io.BytesIO(b"\xff\xd8\xff\xe0" + b"0" * 100)
+    resp = client.post(
+        f"/catalogo/oggetti/{item_id}/modelli/{variant_id}/foto/carica",
+        data={"photo_file": (fake_image, "modello.jpg")},
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    assert "Foto caricata" in resp.data.decode("utf-8")
+
+    photo_dir = tmp_path / "item-photos"
+    assert len(list(photo_dir.glob(f"variant_{variant_id}.*"))) == 1
+
+    # Eliminando il MODELLO, il file sparisce dal disco (non solo dal database).
+    resp2 = client.post(f"/catalogo/oggetti/{item_id}/modelli/{variant_id}/elimina", follow_redirects=True)
+    assert resp2.status_code == 200
+    assert len(list(photo_dir.glob(f"variant_{variant_id}.*"))) == 0
+
+
+def test_variant_photo_appears_in_trip_workspace_modal_data(app, tmp_path, monkeypatch):
+    """
+    Bug reale segnalato: l'anteprima/zoom della foto funzionava per un
+    oggetto senza modelli, ma non per un oggetto CON modelli, quando lo
+    si guardava dalla schermata di un viaggio — perché il filtro Jinja
+    `get_variant_modal_data` (che alimenta la finestra di scelta del
+    modello via l'attributo `data-variants`) non includeva alcuna
+    informazione sulla foto. Verifica end-to-end via HTTP reale (non
+    solo la funzione del filtro isolata): carica una foto per un
+    modello, apre il workspace del viaggio, e controlla che il JSON in
+    `data-variants` per quell'oggetto riporti `has_photo: true` e un
+    `photo_url` valido, raggiungibile.
+    """
+    monkeypatch.setattr("app.config.DATA_DIR", tmp_path)
+
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    # L'admin appena creato ha must_change_password=True: senza questo
+    # passaggio ogni richiesta viene rediretta a "Cambia password" (vedi
+    # _register_password_change_guard) e la pagina del viaggio non
+    # verrebbe mai renderizzata per davvero.
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+
+    with app.app_context():
+        admin = User.query.first()
+        cat = Category.query.filter_by(owner_id=admin.id).first()
+        item = Item(owner_id=admin.id, name="Oggetto con modello fotografato nel viaggio", category_id=cat.id)
+        db.session.add(item)
+        db.session.commit()
+        variant = ItemVariant(item_id=item.id, description="Modello fotografato nel viaggio", weight_grams=100, owned_qty=1)
+        db.session.add(variant)
+        db.session.commit()
+        item_id, variant_id = item.id, variant.id
+        trip = _make_trip(admin, days=3)
+        trip_id = trip.id
+
+    import io
+    fake_image = io.BytesIO(b"\xff\xd8\xff\xe0" + b"0" * 100)
+    resp = client.post(
+        f"/catalogo/oggetti/{item_id}/modelli/{variant_id}/foto/carica",
+        data={"photo_file": (fake_image, "modello.jpg")},
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    assert "Foto caricata" in resp.data.decode("utf-8")
+
+    workspace_resp = client.get(f"/viaggi/{trip_id}")
+    assert workspace_resp.status_code == 200
+    html = workspace_resp.data.decode("utf-8")
+
+    idx = html.find("Oggetto con modello fotografato nel viaggio")
+    assert idx != -1
+    import re
+    match = re.search(r"data-variants='([^']*)'", html[idx:idx + 3000])
+    assert match is not None
+    variants_json = match.group(1)
+    assert '"has_photo": true' in variants_json
+    photo_url_match = re.search(r'"photo_url": "([^"]+)"', variants_json)
+    assert photo_url_match is not None
+
+    photo_resp = client.get(photo_url_match.group(1))
+    assert photo_resp.status_code == 200
+    assert photo_resp.data.startswith(b"\xff\xd8\xff\xe0")
+
+
+def test_workspace_search_no_longer_filters_server_side(app):
+    """
+    Bug reale segnalato: la ricerca nel workspace di un viaggio non era
+    "in tempo reale" — filtrava lato server e richiedeva di premere
+    Invio/ricaricare la pagina. Ora è puramente client-side (vedi
+    initItemSearch/applyItemSearchFilter in dashboard.js): il server
+    deve quindi renderizzare SEMPRE tutti gli oggetti del viaggio,
+    indipendentemente dal parametro "q" in query string, che resta
+    solo per precompilare il campo di ricerca. Verifica che passare
+    "q" nell'URL non faccia più sparire dal markup un oggetto che non
+    corrisponde al testo cercato, e che ogni riga porti l'attributo
+    dati usato dal filtro JS.
+    """
+    with app.app_context():
+        admin = User.query.first()
+        cat = Category.query.filter_by(owner_id=admin.id).first()
+        item = Item(owner_id=admin.id, name="Ombrello arancione da test", category_id=cat.id)
+        db.session.add(item)
+        db.session.commit()
+        item_id = item.id
+        trip = _make_trip(admin, days=3)
+        trip_id = trip.id
+        sync_trip_items(trip, admin)
+
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+    resp = client.get(f"/viaggi/{trip_id}?q=questo+testo+non+corrisponde+a+nulla")
+    assert resp.status_code == 200
+    html = resp.data.decode("utf-8")
+    # L'oggetto resta nel markup nonostante "q" non lo corrisponda affatto:
+    # la ricerca non deve più rimuoverlo lato server.
+    assert "Ombrello arancione da test" in html
+    assert f'data-item-name="Ombrello arancione da test"' in html
+    assert f'data-item-id="{item_id}"' in html
+    # Il valore digitato resta comunque precompilato nel campo, per
+    # sopravvivere alla navigazione tra le pillole di stato.
+    assert 'value="questo testo non corrisponde a nulla"' in html
+
+
+def test_delete_active_item_with_trip_history_still_blocked(app):
+    """Un oggetto NON archiviato e presente in dei viaggi resta protetto: va prima archiviato."""
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+
+    with app.app_context():
+        admin = User.query.first()
+        cat = Category.query.filter_by(owner_id=admin.id).first()
+        item = Item(owner_id=admin.id, name="Oggetto attivo con storico", category_id=cat.id)
+        db.session.add(item)
+        db.session.commit()
+        item_id = item.id
+        trip = _make_trip(admin, days=2)
+        sync_trip_items(trip, admin)
+        assert TripItem.query.filter_by(item_id=item_id).count() > 0
+
+    resp = client.post(f"/catalogo/oggetti/{item_id}/elimina", follow_redirects=True)
+    assert resp.status_code == 200
+    assert "Archivialo per poterlo eliminare definitivamente" in resp.data.decode("utf-8")
+
+    with app.app_context():
+        assert Item.query.get(item_id) is not None
+
+
+def test_delete_archived_item_with_trip_history_cascades(app):
+    """
+    Richiesta esplicita: un oggetto ARCHIVIATO deve poter essere
+    eliminato definitivamente anche se compare ancora in viaggi
+    passati — a differenza di un oggetto attivo. La cascata su
+    Item.trip_items (cascade="all, delete-orphan") deve occuparsi di
+    rimuovere anche quelle righe, senza errori di integrità referenziale.
+    """
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+
+    with app.app_context():
+        admin = User.query.first()
+        cat = Category.query.filter_by(owner_id=admin.id).first()
+        item = Item(owner_id=admin.id, name="Oggetto archiviato con storico", category_id=cat.id)
+        db.session.add(item)
+        db.session.commit()
+        item_id = item.id
+        trip = _make_trip(admin, days=2)
+        sync_trip_items(trip, admin)
+        assert TripItem.query.filter_by(item_id=item_id).count() > 0
+        item.archived = True
+        db.session.commit()
+
+    resp = client.post(f"/catalogo/oggetti/{item_id}/elimina", follow_redirects=True)
+    assert resp.status_code == 200
+    assert "eliminato definitivamente" in resp.data.decode("utf-8")
+
+    with app.app_context():
+        assert Item.query.get(item_id) is None
+        assert TripItem.query.filter_by(item_id=item_id).count() == 0
+
+
+def test_delete_button_visible_only_in_archived_catalog_list(app):
+    """Il pulsante di eliminazione definitiva compare nella lista del
+    catalogo SOLO nella vista "Archiviati", non in quella attiva."""
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+
+    with app.app_context():
+        admin = User.query.first()
+        cat = Category.query.filter_by(owner_id=admin.id).first()
+        item = Item(owner_id=admin.id, name="Oggetto archiviato per lista", category_id=cat.id, archived=True)
+        db.session.add(item)
+        db.session.commit()
+        item_id = item.id
+
+    active_resp = client.get("/catalogo/oggetti")
+    assert "Oggetto archiviato per lista" not in active_resp.data.decode("utf-8")
+
+    archived_resp = client.get("/catalogo/oggetti?archiviati=1")
+    html = archived_resp.data.decode("utf-8")
+    assert "Oggetto archiviato per lista" in html
+    assert f"/catalogo/oggetti/{item_id}/elimina" in html
+
+
+def test_item_page_save_returns_to_catalog_anchored_to_item_row(app):
+    """
+    Bug reale segnalato: "Torna al catalogo"/"Salva oggetto" si
+    comportava come il pulsante Indietro del browser (dipendeva dal
+    Referer/dalla cronologia di navigazione, potendo finire ovunque),
+    invece di un link fisso e prevedibile. Ora è SEMPRE un link fisso
+    al catalogo vero (rispettando "Archiviati" se l'oggetto lo è),
+    ancorato ESATTAMENTE alla riga di questo oggetto (`#item-<id>`,
+    vedi items.html): lo scroll fino al punto giusto lo fa il browser
+    da solo, nativamente, tramite l'ancora HTML — indipendente da
+    Referer, sessionStorage o cronologia.
+    """
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+    with app.app_context():
+        admin = User.query.first()
+        cat = Category.query.filter_by(owner_id=admin.id).first()
+        item = Item(owner_id=admin.id, name="Oggetto ritorno catalogo", category_id=cat.id)
+        archived_item = Item(owner_id=admin.id, name="Oggetto archiviato ritorno", category_id=cat.id, archived=True)
+        db.session.add_all([item, archived_item])
+        db.session.commit()
+        item_id, cat_id, archived_item_id = item.id, cat.id, archived_item.id
+
+    # Un Referer completamente estraneo (o assente) non deve avere ALCUNA
+    # influenza: il link è sempre lo stesso, calcolato dal server.
+    resp = client.get(f"/catalogo/oggetti/{item_id}", headers={"Referer": "http://localhost/viaggi/999?stato=conservato"})
+    html = resp.data.decode("utf-8")
+    assert f'href="/catalogo/oggetti#item-{item_id}"' in html
+    assert "Torna al catalogo" in html
+    assert "Torna al viaggio" not in html
+    assert 'name="ritorno"' not in html  # il vecchio meccanismo non esiste più
+
+    resp2 = client.post(f"/catalogo/oggetti/{item_id}", data={
+        "item_title": "Oggetto ritorno catalogo", "category_id": str(cat_id), "quantity_rule": "manual",
+        "fixed_qty": "1", "per_day_extra": "1", "default_luggage_type": "", "weight_grams": "", "notes": "",
+    }, follow_redirects=False)
+    assert resp2.status_code == 302
+    assert resp2.headers["Location"] == f"/catalogo/oggetti#item-{item_id}"
+
+    # Un oggetto ARCHIVIATO torna alla vista "Archiviati", sempre ancorato.
+    resp3 = client.get(f"/catalogo/oggetti/{archived_item_id}")
+    html3 = resp3.data.decode("utf-8")
+    assert f'href="/catalogo/oggetti?archiviati=1#item-{archived_item_id}"' in html3
+
+
+def test_catalog_item_row_has_matching_anchor_id(app):
+    """La riga di un oggetto nella tabella del catalogo porta l'id `item-<id>` a cui puntano i link di ritorno."""
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+    with app.app_context():
+        admin = User.query.first()
+        cat = Category.query.filter_by(owner_id=admin.id).first()
+        item = Item(owner_id=admin.id, name="Oggetto con ancora", category_id=cat.id)
+        db.session.add(item)
+        db.session.commit()
+        item_id = item.id
+
+    html = client.get("/catalogo/oggetti").data.decode("utf-8")
+    assert f'id="item-{item_id}"' in html
+
+
+def test_item_page_save_returns_to_trip_workspace_when_from_trip(app):
+    """
+    Come sopra, ma quando si arriva dalle impostazioni di un oggetto
+    dentro un viaggio (`da_viaggio`): "Salva oggetto" deve riportare
+    ESATTAMENTE al workspace di quel viaggio (che ha il proprio
+    meccanismo di ripristino scroll, per-viaggio — v3.7.1), con
+    priorità sempre su un eventuale Referer diverso.
+    """
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+    with app.app_context():
+        admin = User.query.first()
+        cat = Category.query.filter_by(owner_id=admin.id).first()
+        item = Item(owner_id=admin.id, name="Oggetto ritorno viaggio", category_id=cat.id)
+        db.session.add(item)
+        db.session.commit()
+        item_id, cat_id = item.id, cat.id
+        trip = _make_trip(admin, days=3)
+        trip_id = trip.id
+        sync_trip_items(trip, admin)
+
+    resp = client.get(f"/catalogo/oggetti/{item_id}?da_viaggio={trip_id}")
+    html = resp.data.decode("utf-8")
+    assert f'name="da_viaggio" value="{trip_id}"' in html
+    assert "Torna al viaggio" in html
+
+    resp2 = client.post(f"/catalogo/oggetti/{item_id}", data={
+        "item_title": "Oggetto ritorno viaggio", "category_id": str(cat_id), "quantity_rule": "manual",
+        "fixed_qty": "1", "per_day_extra": "1", "default_luggage_type": "", "weight_grams": "", "notes": "",
+        "da_viaggio": str(trip_id),
+    }, follow_redirects=False)
+    assert resp2.status_code == 302
+    assert resp2.headers["Location"] == f"/viaggi/{trip_id}"
+
+
+def test_item_page_two_column_layout_only_for_existing_item(app):
+    """
+    Bug reale corretto: le pagine "dettaglio" e "modifica" di un
+    oggetto erano due pagine separate, con troppi rimandi avanti e
+    indietro. Ora sono un'unica pagina: layout a due colonne (modulo +
+    dettagli) per un oggetto esistente, una sola colonna per "Nuovo
+    oggetto" (i dettagli — zona pericolosa, modelli, storico —
+    richiedono che l'oggetto esista già). La card "Automazione
+    quantità" non compare più: ripeteva in sola lettura campi già
+    editabili proprio accanto, nel modulo, ora che sono sulla stessa pagina.
+    """
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+    with app.app_context():
+        admin = User.query.first()
+        cat = Category.query.filter_by(owner_id=admin.id).first()
+        item = Item(owner_id=admin.id, name="Oggetto layout unico", category_id=cat.id)
+        db.session.add(item)
+        db.session.commit()
+        item_id = item.id
+
+    existing = client.get(f"/catalogo/oggetti/{item_id}").data.decode("utf-8")
+    assert 'class="item-page-layout"' in existing
+    assert "Zona pericolosa" in existing
+    assert "Automazione quantità" not in existing
+
+    new = client.get("/catalogo/oggetti/nuovo").data.decode("utf-8")
+    assert 'class="item-page-layout"' not in new
+    assert "Zona pericolosa" not in new
+
+
+def test_legacy_edit_url_redirects_to_unified_item_page(app):
+    """Il vecchio URL separato /modifica non esiste più: reindirizza alla pagina unica, preservando i parametri di navigazione."""
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+    with app.app_context():
+        admin = User.query.first()
+        cat = Category.query.filter_by(owner_id=admin.id).first()
+        item = Item(owner_id=admin.id, name="Oggetto url legacy", category_id=cat.id)
+        db.session.add(item)
+        db.session.commit()
+        item_id = item.id
+        trip = _make_trip(admin, days=2)
+        trip_id = trip.id
+
+    resp = client.get(f"/catalogo/oggetti/{item_id}/modifica?da_viaggio={trip_id}", follow_redirects=False)
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == f"/catalogo/oggetti/{item_id}?da_viaggio={trip_id}"
+
+
+def test_item_page_save_buttons_duplicated_at_top_and_name_field_not_autofillable(app):
+    """
+    Due rifiniture richieste esplicitamente sulla pagina di un
+    oggetto: (1) i pulsanti "Salva oggetto"/"Salva e vai al
+    successivo"/"Annulla" compaiono anche in alto, non solo in fondo al
+    modulo (un modulo lungo altrimenti costringe a scorrere fino in
+    fondo solo per salvare) — realizzato con `form="item-edit-form"`,
+    che li lega al modulo pur stando fuori dal suo markup; (2) il campo
+    "Nome oggetto" non deve essere suggerito dal browser come un campo
+    anagrafico/password (bug reale segnalato, con screenshot, anche
+    dopo un primo tentativo che cambiava solo `id`): l'attributo HTML
+    "name" del campo è "item_title", non più "name" letterale — vedi
+    `ItemForm.name` in forms.py, dove il parametro `name=` del campo
+    WTForms sovrascrive SOLO l'attributo HTML reso, non l'attributo
+    Python (`form.name.data` continua a funzionare invariato).
+    """
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+    with app.app_context():
+        admin = User.query.first()
+        cat = Category.query.filter_by(owner_id=admin.id).first()
+        a = Item(owner_id=admin.id, name="Calze in filo di Scozia", category_id=cat.id, sort_order=0)
+        b = Item(owner_id=admin.id, name="Secondo oggetto", category_id=cat.id, sort_order=1)
+        db.session.add_all([a, b])
+        db.session.commit()
+        item_id = a.id
+
+    html = client.get(f"/catalogo/oggetti/{item_id}").data.decode("utf-8")
+
+    # (1) pulsanti duplicati in alto, collegati allo stesso modulo.
+    assert html.count('form="item-edit-form"') == 2  # Salva oggetto + Salva e vai al successivo, in alto
+    assert html.count(">Salva oggetto<") == 1  # il pulsante in fondo è un <input type="submit"> di WTForms
+    assert html.count('value="Salva oggetto"') == 1
+    assert html.count(">Annulla<") == 2  # uno in alto, uno in fondo
+
+    # (2) niente id="name" NÉ name="name" (il secondo è il segnale più
+    # forte per l'euristica "questo è il nome di una persona" — Safari
+    # in particolare continuava a suggerire "Compilazione automatica"
+    # anche con il solo id cambiato, bug reale segnalato: bisognava
+    # cambiare anche l'attributo HTML "name", non solo "id").
+    assert 'id="item_title"' in html
+    assert 'name="item_title"' in html
+    assert 'id="name"' not in html
+    assert 'name="name"' not in html
+    assert html.count('autocomplete="off"') >= 8
+    assert 'autocorrect="off"' in html
+    assert 'autocapitalize="off"' in html
+    assert 'spellcheck="false"' in html
+
+
+
+def test_item_photo_uses_object_fit_contain_not_cover(app):
+    """
+    Bug reale segnalato: la foto di un oggetto/modello riempiva
+    (ritagliandolo) lo spazio dedicato invece di adattarsi per intero
+    — puro CSS (object-fit), quindi si applica retroattivamente anche
+    alle foto già caricate, senza bisogno di rielaborarle.
+    """
+    css = open("app/static/css/style.css", encoding="utf-8").read()
+    assert "object-fit: contain; cursor: zoom-in;" in css
+    assert ".item-photo-preview img" in css
+    assert ".item-photo-thumb img" in css
+    # Nessuna foto di oggetto/modello deve più usare "cover" (ritaglia).
+    thumb_start = css.index(".item-photo-thumb img")
+    thumb_line_end = css.index("\n", thumb_start)
+    preview_start = css.index(".item-photo-preview img")
+    preview_block_end = css.index("}", preview_start)
+    assert "object-fit: cover" not in css[preview_start:preview_block_end]
+    assert "object-fit: cover" not in css[thumb_start:thumb_line_end]
+
+
+def test_item_icon_shown_when_no_photo_in_catalog_and_trip_workspace(app):
+    """
+    Richiesta esplicita: quando un oggetto non ha una foto caricata,
+    si può assegnargli un'icona Lucide (lucide.dev) a scelta libera —
+    mostrata al posto della foto sia nel catalogo sia nella schermata
+    di un viaggio. La foto, se presente, ha sempre la precedenza
+    sull'icona (sono alternative, non sovrapposte).
+    """
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+    with app.app_context():
+        admin = User.query.first()
+        cat = Category.query.filter_by(owner_id=admin.id).first()
+        item = Item(owner_id=admin.id, name="Occhiali da sole", category_id=cat.id, icon="glasses")
+        db.session.add(item)
+        db.session.commit()
+        item_id, cat_id = item.id, cat.id
+        trip = _make_trip(admin, days=2)
+        trip_id = trip.id
+        sync_trip_items(trip, admin)
+
+    catalog_html = client.get("/catalogo/oggetti").data.decode("utf-8")
+    assert 'data-lucide="glasses"' in catalog_html
+
+    workspace_html = client.get(f"/viaggi/{trip_id}").data.decode("utf-8")
+    assert 'data-lucide="glasses"' in workspace_html
+
+    item_page_html = client.get(f"/catalogo/oggetti/{item_id}").data.decode("utf-8")
+    assert 'data-lucide="glasses"' in item_page_html
+    assert 'value="glasses"' in item_page_html
+
+    # Salvare una nuova icona dal modulo la aggiorna.
+    resp = client.post(f"/catalogo/oggetti/{item_id}", data={
+        "item_title": "Occhiali da sole", "category_id": str(cat_id), "quantity_rule": "manual",
+        "fixed_qty": "1", "per_day_extra": "1", "default_luggage_type": "", "weight_grams": "", "notes": "",
+        "icon": "sun",
+    })
+    assert resp.status_code == 302
+    with app.app_context():
+        assert Item.query.get(item_id).icon == "sun"
+
+    # La foto, se caricata, ha sempre la precedenza sull'icona.
+    with app.app_context():
+        item2 = Item.query.get(item_id)
+        item2.has_photo = True
+        db.session.commit()
+    html_with_photo = client.get("/catalogo/oggetti").data.decode("utf-8")
+    idx = html_with_photo.index(f'id="item-{item_id}"')
+    row_end = html_with_photo.index("</tr>", idx)
+    row_html = html_with_photo[idx:row_end]
+    assert "data-lucide=\"sun\"" not in row_html
+    assert f'src="/catalogo/oggetti/{item_id}/foto"' in row_html
+
+
+def test_lucide_icon_name_test_distinguishes_icon_names_from_emoji(app):
+    """
+    Richiesta esplicita: il campo Icona deve gestire sia i nomi icona
+    Lucide/Lucide-lab (es. "shorts-boxer") sia le emoji digitate da
+    tastiera. Il test Jinja `lucide_icon_name` è quello che decide come
+    renderizzare ciascun valore — verificato qui direttamente, a
+    livello di unità, prima ancora di controllarne l'uso nelle pagine.
+    """
+    with app.app_context():
+        test_fn = app.jinja_env.tests["lucide_icon_name"]
+        assert test_fn("shirt") is True
+        assert test_fn("shorts-boxer") is True
+        assert test_fn("chevron-right-2") is True
+        assert test_fn("👕") is False
+        assert test_fn("🎉") is False
+        assert test_fn("") is False
+        assert test_fn(None) is False
+        assert test_fn("Shirt") is False  # maiuscole: mai un vero nome icona Lucide
+
+
+def test_item_icon_field_supports_lucide_lab_and_emoji_in_pages(app):
+    """
+    Verifica end-to-end (non solo il test Jinja isolato): un'icona
+    "Lab" (fuori dal set Lucide principale) e un'emoji, impostate come
+    Item.icon, vengono mostrate correttamente — la prima come
+    <i data-lucide="...">, la seconda come testo letterale — sia nel
+    catalogo sia nella pagina dell'oggetto. Un'emoji dentro
+    data-lucide non produrrebbe alcuna icona (lucide.createIcons() la
+    cercherebbe invano nel set di icone): per questo le due cose non
+    possono condividere lo stesso markup.
+    """
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+    with app.app_context():
+        admin = User.query.first()
+        cat = Category.query.filter_by(owner_id=admin.id).first()
+        lab_item = Item(owner_id=admin.id, name="Boxer", category_id=cat.id, icon="shorts-boxer")
+        emoji_item = Item(owner_id=admin.id, name="Maglietta", category_id=cat.id, icon="👕")
+        db.session.add_all([lab_item, emoji_item])
+        db.session.commit()
+        lab_id, emoji_id = lab_item.id, emoji_item.id
+        trip = _make_trip(admin, days=2)
+        trip_id = trip.id
+        sync_trip_items(trip, admin)
+
+    catalog_html = client.get("/catalogo/oggetti").data.decode("utf-8")
+    assert 'data-lucide="shorts-boxer"' in catalog_html
+    assert '<span class="emoji-icon">👕</span>' in catalog_html
+    assert 'data-lucide="👕"' not in catalog_html
+
+    workspace_html = client.get(f"/viaggi/{trip_id}").data.decode("utf-8")
+    assert 'data-lucide="shorts-boxer"' in workspace_html
+    assert '<span class="emoji-icon">👕</span>' in workspace_html
+
+    lab_page_html = client.get(f"/catalogo/oggetti/{lab_id}").data.decode("utf-8")
+    assert 'data-lucide="shorts-boxer"' in lab_page_html
+
+    emoji_page_html = client.get(f"/catalogo/oggetti/{emoji_id}").data.decode("utf-8")
+    assert '<span class="emoji-icon">👕</span>' in emoji_page_html
+
+
+def test_lucide_lab_static_bundle_contains_expected_icons(app):
+    """
+    Il bundle statico delle icone Lab (generato dal pacchetto npm
+    @lucide/lab) esiste, è ben formato, e usa chiavi in PascalCase
+    (es. "ShortsBoxer", non "shorts-boxer") — bug reale segnalato
+    ("le icone lab non appaiono"): lucide.createIcons() converte
+    SEMPRE il valore di data-lucide in PascalCase (funzione interna
+    toPascalCase) prima di cercarlo nell'oggetto icons passato, quindi
+    un file chiavato in kebab-case non veniva mai trovato — verificato
+    contro il vero bundle UMD di lucide, non un mock, in
+    tests/manual_js_checks/verify_lucide_lab_patch.js.
+    """
+    path = "app/static/js/lucide-lab.js"
+    src = open(path, encoding="utf-8").read()
+    assert "window.LUCIDE_LAB_ICONS" in src
+    assert "ShortsBoxer" in src
+    assert "shorts-boxer" not in src  # mai la vecchia chiave kebab-case, sbagliata
+    assert "ISC" in src  # licenza citata
+
+    import json
+    icons_json = src.split("window.LUCIDE_LAB_ICONS = ", 1)[1].rstrip("\n; ")
+    icons = json.loads(icons_json)
+    assert len(icons) == 357
+    assert "LuggageCabin" in icons
+    # Ogni chiave deve essere PascalCase: comincia con maiuscola, mai un trattino.
+    for key in icons:
+        assert key[0].isupper(), f"chiave non PascalCase: {key}"
+        assert "-" not in key, f"chiave ancora in kebab-case: {key}"
+
+
+def test_history_table_uses_dd_mm_yyyy_stacked_and_left_aligned_quantity(app):
+    """
+    Richieste esplicite sulla tabella "Storico nei viaggi": date in
+    formato gg/mm/aaaa, quella di fine a capo (senza trattino, per
+    risparmiare spazio), e la colonna Quantità allineata a sinistra
+    come le altre (non più a destra).
+    """
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+    with app.app_context():
+        admin = User.query.first()
+        cat = Category.query.filter_by(owner_id=admin.id).first()
+        item = Item(owner_id=admin.id, name="Oggetto con storico", category_id=cat.id)
+        db.session.add(item)
+        db.session.commit()
+        item_id = item.id
+        trip = _make_trip(admin, days=3)
+        sync_trip_items(trip, admin)
+
+    html = client.get(f"/catalogo/oggetti/{item_id}").data.decode("utf-8")
+    assert "text-align:right" not in html.split("Storico nei viaggi")[1].split("</table>")[0]
+    history_section = html.split("Storico nei viaggi")[1]
+    assert " — " not in history_section.split("</table>")[0]
+    assert "<br>" in history_section
+
+
+def test_worn_quantity_stepper_uses_user_icon(app):
+    """Richiesta esplicita: l'icona dello stepper "indossato" nel workspace deve essere lucide.dev/icons/user, non "shirt"."""
+    client = app.test_client()
+    client.post("/login", data={"username": "admin", "password": "admin"}, follow_redirects=True)
+    client.post(
+        "/account/password",
+        data={"current_password": "admin", "new_password": "nuova123", "confirm_password": "nuova123"},
+        follow_redirects=True,
+    )
+    with app.app_context():
+        admin = User.query.first()
+        trip = _make_trip(admin, days=2)
+        trip_id = trip.id
+        sync_trip_items(trip, admin)
+
+    html = client.get(f"/viaggi/{trip_id}").data.decode("utf-8")
+    assert '<span class="qty-label"><i data-lucide="user" class="icon" style="width:11px;height:11px;"></i></span>' in html
+    assert '<span class="qty-label"><i data-lucide="shirt" class="icon" style="width:11px;height:11px;"></i></span>' not in html

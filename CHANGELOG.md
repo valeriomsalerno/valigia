@@ -8,28 +8,17 @@ completa e `CONTEXT.md` per lo stato tecnico dettagliato del progetto.
 
 ---
 
-## v3.6.7 — 8 settembre 2026 — Il catalogo di base ora è quello vero
+## v3.11.1 — 13 settembre 2026 — Icone Lab corrette, Safari e "Nome oggetto"
 
-### Nuovo: il catalogo curato è imbustato nel codice
+### Corretto: le icone "Lab" (es. luggage-cabin, shorts-boxer) non apparivano
 
-Da questa versione, `app/seed_data/catalogo_base.json` contiene
-davvero il catalogo scelto — 5 categorie, 17 oggetti (inclusi i
-Pantaloni con i loro 6 modelli specifici), e le due valigie reali.
-D'ora in poi, ogni installazione fatta da zero da questo repository
-riceve questo catalogo, non più quello generico originale. Verificato
-avviando un'installazione completamente nuova: categorie, oggetti,
-modelli e valigie sono tutti presenti correttamente.
+Un errore nel modo in cui erano salvate internamente le 357 icone
+"Lab" impediva a Lucide di trovarle. Ora funzionano correttamente.
 
-### Corretto: un nuovo utente poteva ritrovarsi con valigie doppie
+### Corretto: Safari suggeriva ancora "Compilazione automatica" su "Nome oggetto"
 
-Le due valigie generiche di partenza venivano create sempre, prima di
-importare il catalogo di base — quando quel catalogo include le
-proprie valigie (come ora), questo produceva quattro valigie invece
-di due. Corretto: le due generiche si creano solo se il catalogo
-importato non ne porta già.
+Il tentativo precedente non era sufficiente per Safari. Cambiato
+anche l'attributo che identifica il campo, oltre a rafforzare la
+disattivazione dei suggerimenti automatici della tastiera.
 
-### Nessuna azione richiesta per aggiornare
-
-Riguarda solo i NUOVI utenti creati da questo momento in poi (e le
-nuove installazioni fatte da zero); il tuo account esistente e i tuoi
-dati non vengono toccati in alcun modo.
+Vedi `CONTEXT.md`, sezione 4.46, per i dettagli tecnici completi.

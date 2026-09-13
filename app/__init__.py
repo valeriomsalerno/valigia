@@ -304,6 +304,25 @@ def _register_template_helpers(app: Flask) -> None:
         from app.utils import format_number_it
         return format_number_it(value, decimals=decimali)
 
+    @app.template_test("lucide_icon_name")
+    def is_lucide_icon_name(value):
+        """
+        Distingue un nome icona Lucide/Lucide-lab (es. "shirt",
+        "shorts-boxer": solo lettere minuscole, cifre e trattini) da
+        un'emoji o altro testo libero digitato nello stesso campo
+        "Icona" di un oggetto (vedi Item.icon) — le due cose vanno
+        renderizzate in modo diverso: la prima come `<i data-lucide=...>`
+        (sostituita da lucide.createIcons() con l'SVG corrispondente),
+        la seconda come testo/emoji letterale (data-lucide su un valore
+        non riconosciuto non produce nulla). Non verifica che l'icona
+        ESISTA davvero nel set — solo che la SUA FORMA sia quella di un
+        nome icona: un nome inventato ma "sembra un nome" (es.
+        "zzz-inesistente") semplicemente non produce nessuna icona,
+        stesso comportamento di un nome sbagliato per una categoria.
+        """
+        import re
+        return bool(value) and bool(re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", value))
+
     @app.template_filter("get_variant_modal_data")
     def get_variant_modal_data(variant, trip_item, trip_luggage_id):
         """
@@ -313,6 +332,8 @@ def _register_template_helpers(app: Flask) -> None:
         render della pagina, così aprire la finestra non richiede
         nessuna richiesta al server.
         """
+        from flask import url_for
+
         return {
             "id": variant.id,
             "description": variant.description,
@@ -320,6 +341,12 @@ def _register_template_helpers(app: Flask) -> None:
             "owned_qty": variant.owned_qty,
             "qty_here": trip_item.qty_for_variant_in_luggage(variant.id, trip_luggage_id),
             "qty_elsewhere": trip_item.qty_for_variant(variant.id) - trip_item.qty_for_variant_in_luggage(variant.id, trip_luggage_id),
+            # Aggiunto per il bug "anteprima foto assente per gli oggetti coi
+            # modelli": la finestra di scelta modello (dashboard.js::buildRow)
+            # non riceveva alcuna informazione sulla foto, quindi non poteva
+            # mostrarne una nemmeno quando il modello ne aveva una caricata.
+            "has_photo": variant.has_photo,
+            "photo_url": url_for("catalog.variant_photo_file", item_id=variant.item_id, variant_id=variant.id) if variant.has_photo else None,
         }
 
     @app.context_processor

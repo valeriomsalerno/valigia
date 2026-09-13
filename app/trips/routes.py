@@ -26,8 +26,8 @@ from app.forms import TripForm, ShareTripForm
 from app.access import get_accessible_trip_or_403
 from app.utils import (
     sync_trip_items, ensure_default_trip_luggages, recompute_automatic_quantities,
-    trip_stats, accessible_trips_query, fetch_trip_cover_image, trip_shopping_summary,
-    user_trip_luggages, luggage_display_labels,
+    resync_trip_with_catalog, trip_stats, accessible_trips_query, fetch_trip_cover_image,
+    trip_shopping_summary, user_trip_luggages, luggage_display_labels,
 )
 
 trips_bp = Blueprint("trips", __name__, url_prefix="/viaggi", template_folder="../templates/trips")
@@ -108,8 +108,13 @@ def workspace(trip_id):
         .join(Item)
         .join(Category)
     )
-    if search:
-        query = query.filter(Item.name.ilike(f"%{search}%"))
+    # La ricerca testuale ("q") NON filtra più qui: è puramente client-side
+    # (vedi initItemSearch/applyItemSearchFilter in dashboard.js), in tempo
+    # reale mentre si digita, invece di un giro di andata e ritorno al
+    # server per ogni tentativo. `search` resta letto dalla querystring
+    # SOLO per precompilare il campo — serve a preservare il testo digitato
+    # quando si passa da una pill di stato all'altra (quei link, invece,
+    # restano una navigazione server-side vera e propria).
     if category_id:
         query = query.filter(Item.category_id == category_id)
 
@@ -370,11 +375,23 @@ def delete(trip_id):
 def recompute(trip_id):
     trip = get_accessible_trip_or_403(trip_id)
     updated = recompute_automatic_quantities(trip, current_user)
-    flash(
-        f"{updated} tuoi oggetti ricalcolati in base ai giorni di viaggio." if updated
-        else "Le tue quantità automatiche sono già aggiornate.",
-        "success" if updated else "info",
-    )
+    sync_result = resync_trip_with_catalog(trip, current_user)
+
+    parts = []
+    if updated:
+        parts.append(f"{updated} quantità automatiche ricalcolate")
+    if sync_result["added"]:
+        parts.append(f"{sync_result['added']} oggetti aggiunti dal catalogo")
+    if sync_result["removed"]:
+        parts.append(f"{sync_result['removed']} oggetti rimossi (nel frattempo archiviati nel catalogo)")
+    if sync_result["reordered"]:
+        parts.append("ordine riallineato al catalogo")
+
+    if parts:
+        flash("Ricalcolo completato: " + ", ".join(parts) + ".", "success")
+    else:
+        flash("I tuoi oggetti sono già allineati al catalogo: nessuna modifica necessaria.", "info")
+
     return redirect(url_for("trips.workspace", trip_id=trip.id))
 
 

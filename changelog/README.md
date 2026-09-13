@@ -29,6 +29,15 @@ Quando si rilascia una nuova versione dell'app:
 
 ## Indice delle versioni archiviate
 
+- **[CHANGELOG-3.11.0.md](CHANGELOG-3.11.0.md)** — 13 settembre 2026. Icone "Lab", emoji, storico più compatto.
+- **[CHANGELOG-3.10.0.md](CHANGELOG-3.10.0.md)** — 13 settembre 2026. Foto non ritagliate, icona Lucide per oggetti senza foto.
+- **[CHANGELOG-3.9.2.md](CHANGELOG-3.9.2.md)** — 13 settembre 2026. Tre rifiniture sulla pagina di un oggetto.
+- **[CHANGELOG-3.9.1.md](CHANGELOG-3.9.1.md)** — 13 settembre 2026. "Torna al catalogo" da link-cronologia a link fisso ancorato.
+- **[CHANGELOG-3.9.0.md](CHANGELOG-3.9.0.md)** — 13 settembre 2026. Ordine categorie, "Indossa", Ricalcola completo.
+- **[CHANGELOG-3.8.0.md](CHANGELOG-3.8.0.md)** — 13 settembre 2026. Pagina oggetto unificata, ricerca istantanea.
+- **[CHANGELOG-3.7.1.md](CHANGELOG-3.7.1.md)** — 8 settembre 2026. Anteprima foto dei modelli nel viaggio, scroll preservato tornando dalle impostazioni.
+- **[CHANGELOG-3.7.0.md](CHANGELOG-3.7.0.md)** — 8 settembre 2026. Foto per oggetti e modelli.
+- **[CHANGELOG-3.6.7.md](CHANGELOG-3.6.7.md)** — 8 settembre 2026. Catalogo di base personalizzato imbustato nel codice.
 - **[CHANGELOG-3.6.6.md](CHANGELOG-3.6.6.md)** — 8 settembre 2026. Correzione definitiva allineamento colonna Peso.
 - **[CHANGELOG-3.6.5.md](CHANGELOG-3.6.5.md)** — 8 settembre 2026. Correzione critica script mancante su Valigie/Categorie, allineamenti.
 - **[CHANGELOG-3.6.4.md](CHANGELOG-3.6.4.md)** — 8 settembre 2026. Uscita manuale dalla modifica tabella, estensione a valigie e categorie.

@@ -76,8 +76,9 @@ class CategoryForm(FlaskForm):
 
 
 class ItemForm(FlaskForm):
-    name = StringField("Nome oggetto", validators=[DataRequired(), Length(max=150)])
+    name = StringField("Nome oggetto", validators=[DataRequired(), Length(max=150)], name="item_title")
     category_id = SelectField("Categoria", coerce=int, validators=[DataRequired()])
+    icon = StringField("Icona (se non hai una foto)", validators=[Optional(), Length(max=40)])
     quantity_rule = SelectField(
         "Regola quantità", choices=QuantityRule.CHOICES, validators=[DataRequired()]
     )
@@ -90,7 +91,7 @@ class ItemForm(FlaskForm):
         default=1,
     )
     default_luggage_type = SelectField(
-        "Tipologia di valigia predefinita", validators=[Optional()]
+        "Posizione predefinita", validators=[Optional()]
     )
     weight_grams = DecimalCommaFloatField(
         "Peso di una unità (grammi)", validators=[Optional(), NumberRange(min=0, max=100000)]
@@ -100,7 +101,7 @@ class ItemForm(FlaskForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.default_luggage_type.choices = [("", "— Nessuna (solo manuale) —")] + LuggageType.CHOICES
+        self.default_luggage_type.choices = [("", "— Nessuna (solo manuale) —")] + LuggageType.POSITION_CHOICES
 
 
 class ItemVariantForm(FlaskForm):

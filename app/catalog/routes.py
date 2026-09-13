@@ -93,6 +93,76 @@ def _populate_item_choices(form: ItemForm) -> None:
     ]
 
 
+def _safe_internal_redirect_target(url):
+    """
+    Restituisce `url` solo se punta a QUESTA stessa applicazione (stesso
+    host) — altrimenti None. Diverse viste in questo file tornano
+    "da dove si veniva" leggendo il Referer o un campo "ritorno": un
+    Referer è un header che il browser invia così com'è, quindi in
+    teoria contraffabile da un link costruito ad arte; non va mai
+    usato alla cieca in un redirect.
+    """
+    if not url:
+        return None
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    if parsed.netloc and parsed.netloc != request.host:
+        return None
+    return url
+
+
+def _resolve_navigation_context(item=None):
+    """
+    Da dove tornare, per la pagina "Nuovo oggetto" e per quella
+    (unificata) di un oggetto esistente: o un viaggio specifico —
+    tramite il parametro esplicito `da_viaggio` (link "Vai alle
+    impostazioni dell'oggetto" dal workspace di un viaggio: sempre
+    prioritario, perché è deliberato, non un'euristica) — oppure,
+    SEMPRE, il catalogo vero e proprio, ancorato esattamente alla riga
+    di `item` (`id="item-<id>"`, vedi items.html) quando `item` è già
+    un oggetto esistente.
+
+    PRIMA si usava il Referer HTTP (o un campo "ritorno" portato a
+    mano lungo la navigazione) per dedurre "da dove si veniva": si
+    comportava come il pulsante Indietro del browser — dipendeva
+    dall'ultima pagina visitata, non da un punto fisso — e poteva
+    finire ovunque (bug reale segnalato). Ora "Torna al catalogo" è
+    SEMPRE un link fisso al catalogo vero, mai una supposizione basata
+    sulla cronologia: lo scroll fino alla riga giusta lo fa il browser
+    da solo, nativamente, tramite l'ancora HTML — non serve nessun
+    meccanismo di memorizzazione lato client.
+
+    Restituisce (from_trip, return_to): quest'ultimo è SEMPRE un URL
+    utilizzabile (mai None).
+    """
+    from_trip = None
+    trip_id_param = request.values.get("da_viaggio", type=int)
+    if trip_id_param:
+        candidate = Trip.query.get(trip_id_param)
+        if candidate is not None and candidate.is_accessible_by(current_user):
+            from_trip = candidate
+
+    if from_trip:
+        return_to = url_for("trips.workspace", trip_id=from_trip.id)
+    elif item is not None:
+        return_to = url_for("catalog.items", archiviati=("1" if item.archived else None)) + f"#item-{item.id}"
+    else:
+        return_to = url_for("catalog.items")
+
+    return from_trip, return_to
+
+
+def _nav_context_kwargs(from_trip):
+    """Il parametro da riattaccare ai link "Precedente"/"Successivo" e ai
+    redirect interni, per non perdere il contesto del viaggio passando
+    da un oggetto all'altro in sequenza — il ritorno al catalogo non ha
+    più bisogno di essere "portato a mano": si ricalcola da sé ad ogni
+    pagina, ancorato all'oggetto CORRENTE (vedi _resolve_navigation_context)."""
+    if from_trip:
+        return {"da_viaggio": from_trip.id}
+    return {}
+
+
 @catalog_bp.route("/oggetti")
 @login_required
 def items():
@@ -149,12 +219,14 @@ def import_base():
 def new_item():
     form = ItemForm()
     _populate_item_choices(form)
+    from_trip, return_to = _resolve_navigation_context()
 
     if form.validate_on_submit():
         item = Item(
             owner_id=current_user.id,
             name=form.name.data.strip(),
             category_id=form.category_id.data,
+            icon=(form.icon.data or "").strip() or None,
             quantity_rule=form.quantity_rule.data,
             fixed_qty=form.fixed_qty.data or 0,
             per_day_extra=form.per_day_extra.data or 0,
@@ -169,16 +241,104 @@ def new_item():
         for trip in Trip.query.filter_by(owner_id=current_user.id).all():
             sync_trip_items(trip, current_user)
 
-        flash(f'Oggetto "{item.name}" aggiunto al catalogo.', "success")
-        return redirect(url_for("catalog.items"))
+        flash(f'Oggetto "{item.name}" aggiunto al catalogo. Ora puoi aggiungere i modelli, se ne ha.', "success")
+        # Alla pagina UNIFICATA di questo stesso oggetto (non alla lista):
+        # è lì che si gestiscono i modelli — un oggetto nuovo non poteva
+        # mai averne finché non veniva prima salvato e riaperto, un giro
+        # inutile (bug reale segnalato: "non mi viene fornita la
+        # possibilità di aggiungere nuovi modelli"). Porta con sé lo
+        # stesso contesto (viaggio/pagina di provenienza) da cui si è
+        # aperta "Nuovo oggetto".
+        return redirect(url_for("catalog.item_detail", item_id=item.id, **_nav_context_kwargs(from_trip)))
 
-    return render_template("catalog/item_form.html", form=form, item=None)
+    return render_template(
+        "catalog/item_detail.html", form=form, item=None,
+        from_trip=from_trip, return_to=return_to, nav_kwargs=_nav_context_kwargs(from_trip),
+    )
 
 
-@catalog_bp.route("/oggetti/<int:item_id>")
+@catalog_bp.route("/oggetti/<int:item_id>", methods=["GET", "POST"])
 @login_required
 def item_detail(item_id):
+    """
+    Pagina UNICA di un oggetto: prima erano due pagine separate (questa,
+    di sola visualizzazione, e catalog.edit_item, di sola modifica) che
+    si rimandavano continuamente l'un l'altra — "Modifica" di qua,
+    "Modelli e dettagli" di là — troppi click per una singola modifica
+    (bug reale segnalato). Ora un'unica pagina fa entrambe le cose: il
+    modulo di modifica (nome, categoria, regola quantità, peso, foto,
+    note) e i "dettagli" che richiedono che l'oggetto esista già (zona
+    pericolosa, modelli, storico nei viaggi) — questi ultimi non hanno
+    più bisogno di una card "Automazione quantità" a parte, che si
+    limitava a ripetere in sola lettura campi già editabili proprio
+    accanto, nel modulo.
+    """
     item = Item.query.filter_by(id=item_id, owner_id=current_user.id).first_or_404()
+    form = ItemForm(obj=item)
+    _populate_item_choices(form)
+
+    if request.method == "GET":
+        form.default_luggage_type.data = item.default_luggage_type or ""
+
+    from_trip, return_to = _resolve_navigation_context(item)
+    # Oggetto precedente/successivo nella STESSA categoria (stesso ordine
+    # del catalogo) — calcolato PRIMA della convalida perché serve sia
+    # per i pulsanti di navigazione (in ogni caso) sia per decidere dove
+    # reindirizzare dopo "Salva e vai al successivo" (solo se il salvataggio riesce).
+    # Resta nello stesso insieme attivo/archiviato dell'oggetto corrente,
+    # per coerenza col contesto da cui si viene.
+    siblings = (
+        Item.query.filter_by(owner_id=current_user.id, category_id=item.category_id, archived=item.archived)
+        .order_by(Item.sort_order, Item.name).all()
+    )
+    sibling_ids = [i.id for i in siblings]
+    idx = sibling_ids.index(item.id) if item.id in sibling_ids else -1
+    prev_item_id = sibling_ids[idx - 1] if idx > 0 else None
+    next_item_id = sibling_ids[idx + 1] if 0 <= idx < len(sibling_ids) - 1 else None
+
+    if form.validate_on_submit():
+        category_changed = item.category_id != form.category_id.data
+        item.name = form.name.data.strip()
+        item.category_id = form.category_id.data
+        item.icon = (form.icon.data or "").strip() or None
+        item.quantity_rule = form.quantity_rule.data
+        item.fixed_qty = form.fixed_qty.data or 0
+        item.per_day_extra = form.per_day_extra.data or 0
+        item.default_luggage_type = form.default_luggage_type.data or None
+        item.weight_grams = form.weight_grams.data
+        item.notes = (form.notes.data or "").strip()
+        if category_changed:
+            # Spostato in un'altra categoria (solo da qui, mai per
+            # trascinamento): va in fondo al suo nuovo ordine.
+            item.sort_order = Item.query.filter_by(
+                owner_id=current_user.id, category_id=item.category_id
+            ).count()
+        db.session.commit()
+        flash(f'Oggetto "{item.name}" aggiornato.', "success")
+
+        nav_kwargs = _nav_context_kwargs(from_trip)
+
+        if "save_and_next" in request.form:
+            if next_item_id:
+                return redirect(url_for("catalog.item_detail", item_id=next_item_id, **nav_kwargs))
+            flash("Non c'è un oggetto successivo in questa categoria: sei rimasto sull'ultimo.", "success")
+            return redirect(url_for("catalog.item_detail", item_id=item.id, **nav_kwargs))
+
+        # "Salva oggetto": salva e riporta ESATTAMENTE alla pagina da cui
+        # si era arrivati — lista del catalogo (anche filtrata su
+        # "Archiviati"), ancorata esattamente alla riga di questo
+        # oggetto — oppure il workspace del viaggio se si veniva da lì —
+        # invece di restare bloccati sulla pagina di modifica (bug reale
+        # segnalato). `return_to` è un link FISSO (vedi
+        # _resolve_navigation_context: niente più Referer/cronologia,
+        # bug reale segnalato in seguito — "si comporta come il
+        # pulsante Indietro del browser"): lo scroll fino alla riga
+        # giusta lo fa il browser da solo, nativamente, tramite l'ancora
+        # HTML `#item-<id>` — non serve alcun meccanismo lato client per
+        # questo caso specifico (resta invece utile altrove, vedi
+        # initGenericScrollRestore in dashboard.js, per pagine come
+        # "Categorie" che si ricaricano sulla stessa identica URL).
+        return redirect(return_to)
 
     history = (
         TripItem.query.filter_by(item_id=item.id, user_id=current_user.id)
@@ -187,19 +347,11 @@ def item_detail(item_id):
         .all()
     )
 
-    # Se si arriva qui da "Vai alle impostazioni dell'oggetto" dentro un
-    # viaggio, mostra un pulsante per tornarci direttamente (invece di
-    # dover rifare tutta la strada dal Catalogo).
-    from_trip = None
-    trip_id_param = request.args.get("da_viaggio", type=int)
-    if trip_id_param:
-        candidate = Trip.query.get(trip_id_param)
-        if candidate is not None and candidate.is_accessible_by(current_user):
-            from_trip = candidate
-
     return render_template(
-        "catalog/item_detail.html", item=item, history=history, from_trip=from_trip,
-        variant_form=ItemVariantForm(),
+        "catalog/item_detail.html", form=form, item=item,
+        prev_item_id=prev_item_id, next_item_id=next_item_id,
+        from_trip=from_trip, return_to=return_to, nav_kwargs=_nav_context_kwargs(from_trip),
+        history=history, variant_form=ItemVariantForm(),
     )
 
 
@@ -224,7 +376,7 @@ def add_variant(item_id):
         for errors in form.errors.values():
             for e in errors:
                 flash(e, "error")
-    return redirect(url_for("catalog.item_detail", item_id=item.id))
+    return redirect(_safe_internal_redirect_target(request.referrer) or url_for("catalog.item_detail", item_id=item.id))
 
 
 @catalog_bp.route("/oggetti/<int:item_id>/modelli/<int:variant_id>/modifica", methods=["GET", "POST"])
@@ -233,6 +385,8 @@ def edit_variant(item_id, variant_id):
     item = Item.query.filter_by(id=item_id, owner_id=current_user.id).first_or_404()
     variant = ItemVariant.query.filter_by(id=variant_id, item_id=item.id).first_or_404()
     form = ItemVariantForm(obj=variant)
+    return_to = _safe_internal_redirect_target(request.values.get("ritorno") or request.referrer) \
+        or url_for("catalog.item_detail", item_id=item.id)
 
     if form.validate_on_submit():
         variant.description = form.description.data.strip()
@@ -240,9 +394,9 @@ def edit_variant(item_id, variant_id):
         variant.owned_qty = form.owned_qty.data or 0
         db.session.commit()
         flash(f'Modello "{variant.description}" aggiornato.', "success")
-        return redirect(url_for("catalog.item_detail", item_id=item.id))
+        return redirect(return_to)
 
-    return render_template("catalog/variant_form.html", item=item, variant=variant, form=form)
+    return render_template("catalog/variant_form.html", item=item, variant=variant, form=form, return_to=return_to)
 
 
 @catalog_bp.route("/oggetti/<int:item_id>/modelli/<int:variant_id>/elimina", methods=["POST"])
@@ -251,70 +405,27 @@ def delete_variant(item_id, variant_id):
     item = Item.query.filter_by(id=item_id, owner_id=current_user.id).first_or_404()
     variant = ItemVariant.query.filter_by(id=variant_id, item_id=item.id).first_or_404()
     nome = variant.description
+    if variant.has_photo:
+        old = _existing_photo_path(f"variant_{variant.id}")
+        if old:
+            old.unlink(missing_ok=True)
     db.session.delete(variant)
     db.session.commit()
     flash(f'Modello "{nome}" eliminato.', "success")
-    return redirect(url_for("catalog.item_detail", item_id=item.id))
+    return redirect(_safe_internal_redirect_target(request.referrer) or url_for("catalog.item_detail", item_id=item.id))
 
 
-@catalog_bp.route("/oggetti/<int:item_id>/modifica", methods=["GET", "POST"])
+@catalog_bp.route("/oggetti/<int:item_id>/modifica")
 @login_required
 def edit_item(item_id):
-    item = Item.query.filter_by(id=item_id, owner_id=current_user.id).first_or_404()
-    form = ItemForm(obj=item)
-    _populate_item_choices(form)
-
-    if request.method == "GET":
-        form.default_luggage_type.data = item.default_luggage_type or ""
-
-    # Oggetto precedente/successivo nella STESSA categoria (stesso ordine
-    # del catalogo) — calcolato PRIMA della convalida perché serve sia
-    # per i pulsanti di navigazione (in ogni caso) sia per decidere dove
-    # reindirizzare dopo "Salva e vai al successivo" (solo se il salvataggio riesce).
-    # Resta nello stesso insieme attivo/archiviato dell'oggetto corrente,
-    # per coerenza col contesto da cui si viene.
-    siblings = (
-        Item.query.filter_by(owner_id=current_user.id, category_id=item.category_id, archived=item.archived)
-        .order_by(Item.sort_order, Item.name).all()
-    )
-    sibling_ids = [i.id for i in siblings]
-    idx = sibling_ids.index(item.id) if item.id in sibling_ids else -1
-    prev_item_id = sibling_ids[idx - 1] if idx > 0 else None
-    next_item_id = sibling_ids[idx + 1] if 0 <= idx < len(sibling_ids) - 1 else None
-
-    if form.validate_on_submit():
-        category_changed = item.category_id != form.category_id.data
-        item.name = form.name.data.strip()
-        item.category_id = form.category_id.data
-        item.quantity_rule = form.quantity_rule.data
-        item.fixed_qty = form.fixed_qty.data or 0
-        item.per_day_extra = form.per_day_extra.data or 0
-        item.default_luggage_type = form.default_luggage_type.data or None
-        item.weight_grams = form.weight_grams.data
-        item.notes = (form.notes.data or "").strip()
-        if category_changed:
-            # Spostato in un'altra categoria (solo da qui, mai per
-            # trascinamento): va in fondo al suo nuovo ordine.
-            item.sort_order = Item.query.filter_by(
-                owner_id=current_user.id, category_id=item.category_id
-            ).count()
-        db.session.commit()
-        flash(f'Oggetto "{item.name}" aggiornato.', "success")
-
-        if "save_and_next" in request.form:
-            if next_item_id:
-                return redirect(url_for("catalog.edit_item", item_id=next_item_id))
-            flash("Non c'è un oggetto successivo in questa categoria: sei rimasto sull'ultimo.", "success")
-            return redirect(url_for("catalog.edit_item", item_id=item.id))
-
-        # Resta sulla pagina di modifica (non porta al dettaglio o altrove):
-        # così i pulsanti precedente/successivo restano usabili in sequenza.
-        return redirect(url_for("catalog.edit_item", item_id=item.id))
-
-    return render_template(
-        "catalog/item_form.html", form=form, item=item,
-        prev_item_id=prev_item_id, next_item_id=next_item_id,
-    )
+    """
+    Retrocompatibilità: la pagina di modifica separata non esiste più
+    da quando si è unita con la pagina dettaglio (vedi catalog.item_detail,
+    che ora gestisce entrambe) — un eventuale link o segnalibro verso
+    questo vecchio URL viene rediretto lì, preservando eventuali
+    parametri di navigazione (`da_viaggio`, `ritorno`).
+    """
+    return redirect(url_for("catalog.item_detail", item_id=item_id, **request.args))
 
 
 @catalog_bp.route("/oggetti/<int:item_id>/archivia", methods=["POST"])
@@ -325,22 +436,174 @@ def toggle_archive_item(item_id):
     db.session.commit()
     stato = "archiviato" if item.archived else "ripristinato nel catalogo attivo"
     flash(f'Oggetto "{item.name}" {stato}.', "success")
-    return redirect(request.referrer or url_for("catalog.items"))
+    return redirect(_safe_internal_redirect_target(request.referrer) or url_for("catalog.items"))
 
 
 @catalog_bp.route("/oggetti/<int:item_id>/elimina", methods=["POST"])
 @login_required
 def delete_item(item_id):
     item = Item.query.filter_by(id=item_id, owner_id=current_user.id).first_or_404()
-    if item.trip_items:
+    # Un oggetto ancora ATTIVO (non archiviato) e presente in dei viaggi
+    # resta protetto: va prima archiviato — la conferma di eliminazione,
+    # in quel caso, arriva sempre da "Vedi archiviati" / dalla pagina
+    # dettaglio di un oggetto già archiviato. Un oggetto ARCHIVIATO,
+    # invece, può essere eliminato definitivamente anche se compare
+    # ancora in dei viaggi passati: la cascata su Item.trip_items se ne
+    # occupa (cascade="all, delete-orphan" in models.py), rimuovendo
+    # anche quelle righe — è la richiesta esplicita di "svuotare"
+    # davvero il catalogo archiviato, non solo nasconderlo.
+    if item.trip_items and not item.archived:
         flash(
             f'Non puoi eliminare definitivamente "{item.name}": è presente in '
-            f"{len(item.trip_items)} viaggi. Puoi archiviarlo per nasconderlo dal catalogo attivo.",
+            f"{len(item.trip_items)} viaggi. Archivialo per poterlo eliminare definitivamente.",
             "error",
         )
         return redirect(url_for("catalog.item_detail", item_id=item.id))
 
+    if item.has_photo:
+        old = _existing_photo_path(f"item_{item.id}")
+        if old:
+            old.unlink(missing_ok=True)
+    for v in item.variants:
+        if v.has_photo:
+            old = _existing_photo_path(f"variant_{v.id}")
+            if old:
+                old.unlink(missing_ok=True)
+
     db.session.delete(item)
     db.session.commit()
     flash(f'Oggetto "{item.name}" eliminato definitivamente.', "success")
-    return redirect(url_for("catalog.items"))
+    # Torna a dove si veniva — tipicamente la lista "Archiviati" da cui
+    # si è appena eliminato l'oggetto — non sempre al catalogo attivo.
+    return redirect(_safe_internal_redirect_target(request.referrer) or url_for("catalog.items"))
+
+
+# ---------------------------------------------------------------------------
+# Foto di un oggetto o di un modello (caricata dal telefono o dalla
+# libreria foto — vedi templates/catalog/item_form.html e
+# _item_variant_row.html per i moduli di caricamento).
+# ---------------------------------------------------------------------------
+
+_ALLOWED_PHOTO_EXTENSIONS = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "webp": "webp", "heic": "heic"}
+
+
+def _item_photos_dir():
+    from app.config import DATA_DIR
+    d = DATA_DIR / "item-photos"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _existing_photo_path(prefix: str):
+    """Trova il file già caricato per questo prefisso (es. "item_12"), qualunque sia l'estensione."""
+    for f in _item_photos_dir().glob(f"{prefix}.*"):
+        return f
+    return None
+
+
+def _save_uploaded_photo(uploaded, prefix: str) -> bool:
+    """
+    Convalida e salva una foto caricata, rimuovendo prima quella
+    precedente per lo stesso prefisso (se esiste, qualunque estensione
+    avesse). Ritorna True se salvata, False se il file non era valido
+    (in quel caso ha già impostato un messaggio flash con il motivo).
+    """
+    if not uploaded or not uploaded.filename:
+        flash("Seleziona una foto da caricare.", "error")
+        return False
+    ext = uploaded.filename.rsplit(".", 1)[-1].lower() if "." in uploaded.filename else ""
+    if ext not in _ALLOWED_PHOTO_EXTENSIONS:
+        flash("Formato non supportato: usa JPG, PNG, WEBP o HEIC.", "error")
+        return False
+    uploaded.seek(0, 2)
+    size = uploaded.tell()
+    uploaded.seek(0)
+    if size > 10 * 1024 * 1024:
+        flash("Foto troppo grande (massimo 10 MB).", "error")
+        return False
+
+    old = _existing_photo_path(prefix)
+    if old:
+        old.unlink(missing_ok=True)
+    uploaded.save(_item_photos_dir() / f"{prefix}.{ext}")
+    return True
+
+
+@catalog_bp.route("/oggetti/<int:item_id>/foto/carica", methods=["POST"])
+@login_required
+def upload_item_photo(item_id):
+    item = Item.query.filter_by(id=item_id, owner_id=current_user.id).first_or_404()
+    if _save_uploaded_photo(request.files.get("photo_file"), f"item_{item.id}"):
+        item.has_photo = True
+        db.session.commit()
+        flash("Foto caricata.", "success")
+    return redirect(_safe_internal_redirect_target(request.referrer) or url_for("catalog.item_detail", item_id=item.id))
+
+
+@catalog_bp.route("/oggetti/<int:item_id>/foto/rimuovi", methods=["POST"])
+@login_required
+def remove_item_photo(item_id):
+    item = Item.query.filter_by(id=item_id, owner_id=current_user.id).first_or_404()
+    old = _existing_photo_path(f"item_{item.id}")
+    if old:
+        old.unlink(missing_ok=True)
+    item.has_photo = False
+    db.session.commit()
+    flash("Foto rimossa.", "success")
+    return redirect(_safe_internal_redirect_target(request.referrer) or url_for("catalog.item_detail", item_id=item.id))
+
+
+@catalog_bp.route("/oggetti/<int:item_id>/foto")
+@login_required
+def item_photo_file(item_id):
+    """
+    Serve il file per QUALUNQUE utente possa vedere questo oggetto in
+    un contesto legittimo (non solo il proprietario del catalogo): un
+    collaboratore in un viaggio condiviso vede gli oggetti dell'altro
+    nella stessa lista, quindi deve poter vedere anche le loro foto.
+    """
+    from flask import send_file, abort
+
+    item = Item.query.get_or_404(item_id)
+    path = _existing_photo_path(f"item_{item.id}")
+    if path is None:
+        abort(404)
+    return send_file(path)
+
+
+@catalog_bp.route("/oggetti/<int:item_id>/modelli/<int:variant_id>/foto/carica", methods=["POST"])
+@login_required
+def upload_variant_photo(item_id, variant_id):
+    item = Item.query.filter_by(id=item_id, owner_id=current_user.id).first_or_404()
+    variant = ItemVariant.query.filter_by(id=variant_id, item_id=item.id).first_or_404()
+    if _save_uploaded_photo(request.files.get("photo_file"), f"variant_{variant.id}"):
+        variant.has_photo = True
+        db.session.commit()
+        flash("Foto caricata.", "success")
+    return redirect(_safe_internal_redirect_target(request.referrer) or url_for("catalog.item_detail", item_id=item.id))
+
+
+@catalog_bp.route("/oggetti/<int:item_id>/modelli/<int:variant_id>/foto/rimuovi", methods=["POST"])
+@login_required
+def remove_variant_photo(item_id, variant_id):
+    item = Item.query.filter_by(id=item_id, owner_id=current_user.id).first_or_404()
+    variant = ItemVariant.query.filter_by(id=variant_id, item_id=item.id).first_or_404()
+    old = _existing_photo_path(f"variant_{variant.id}")
+    if old:
+        old.unlink(missing_ok=True)
+    variant.has_photo = False
+    db.session.commit()
+    flash("Foto rimossa.", "success")
+    return redirect(_safe_internal_redirect_target(request.referrer) or url_for("catalog.item_detail", item_id=item.id))
+
+
+@catalog_bp.route("/oggetti/<int:item_id>/modelli/<int:variant_id>/foto")
+@login_required
+def variant_photo_file(item_id, variant_id):
+    from flask import send_file, abort
+
+    variant = ItemVariant.query.filter_by(id=variant_id, item_id=item_id).first_or_404()
+    path = _existing_photo_path(f"variant_{variant.id}")
+    if path is None:
+        abort(404)
+    return send_file(path)

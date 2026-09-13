@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import item_icon_or_emoji %}
 {% block title %}Oggetti — {{ app_name }}{% endblock %}
 {% block content %}
 
@@ -87,8 +88,8 @@
           <span class="col-resize-handle" data-col-index="2"></span>
         </th>
         <th{% if saved_widths %} style="width:{{ saved_widths[2] }}%;"{% endif %}>
-          <span class="col-icon" title="Valigia predefinita"><i data-lucide="handbag" class="icon"></i></span>
-          <span class="col-text">Valigia predefinita</span>
+          <span class="col-icon" title="Posizione predefinita"><i data-lucide="handbag" class="icon"></i></span>
+          <span class="col-text">Posizione predefinita</span>
           <span class="col-resize-handle" data-col-index="3"></span>
         </th>
         <th{% if saved_widths %} style="width:{{ saved_widths[3] }}%;"{% endif %}>
@@ -101,9 +102,18 @@
     </thead>
     <tbody data-reorderable-catalog data-category-id="{{ group.category.id }}">
       {% for item in group.catalog_items %}
-      <tr data-item-id="{{ item.id }}">
+      <tr data-item-id="{{ item.id }}" id="item-{{ item.id }}">
         <td class="drag-handle-cell"><span class="drag-handle" title="Trascina per riordinare" aria-hidden="true"><i data-lucide="grip-vertical" class="icon"></i></span></td>
         <td>
+          {% if item.has_photo %}
+          <div class="item-photo-thumb" style="margin-right:8px;">
+            <img src="{{ url_for('catalog.item_photo_file', item_id=item.id) }}" alt="Foto di {{ item.name }}" data-photo-zoom-trigger>
+          </div>
+          {% elif item.icon %}
+          <div class="item-photo-thumb" style="margin-right:8px;">
+            {{ item_icon_or_emoji(item.icon) }}
+          </div>
+          {% endif %}
           <a href="{{ url_for('catalog.item_detail', item_id=item.id) }}" style="font-weight:600; text-decoration:none;">
             {{ item.name }}
           </a>
@@ -121,7 +131,7 @@
             {% else %}Manuale{% endif %}
           </span>
         </td>
-        <td class="text-muted" data-label="Valigia predefinita">
+        <td class="text-muted" data-label="Posizione predefinita">
           {% if item.default_luggage_type %}
           <span class="col-icon" title="{{ item.default_luggage_type_label }}"><i data-lucide="{{ current_user.luggage_type_icon(item.default_luggage_type) }}" class="icon"></i></span>
           <span class="col-text">{{ item.default_luggage_type_label }}</span>
@@ -129,13 +139,22 @@
         </td>
         <td class="text-muted" data-label="Peso">{{ item.weight_grams | numero_it }}{{ ' g' if item.weight_grams }}</td>
         <td style="text-align:right; white-space:nowrap;">
-          <a href="{{ url_for('catalog.edit_item', item_id=item.id) }}" class="btn btn-ghost btn-sm"><i data-lucide="pencil" class="icon"></i></a>
+          <a href="{{ url_for('catalog.item_detail', item_id=item.id) }}" class="btn btn-ghost btn-sm"><i data-lucide="pencil" class="icon"></i></a>
           <form method="post" action="{{ url_for('catalog.toggle_archive_item', item_id=item.id) }}" style="display:inline;">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-ghost btn-sm" title="{{ 'Ripristina' if show_archived else 'Archivia' }}">
               <i data-lucide="{{ 'rotate-ccw' if show_archived else 'archive' }}" class="icon"></i>
             </button>
           </form>
+          {% if show_archived %}
+          <form method="post" action="{{ url_for('catalog.delete_item', item_id=item.id) }}" style="display:inline;"
+                onsubmit="return confirm('Eliminare definitivamente questo oggetto?{{ (' Verrà rimosso anche da ' ~ item.trip_items|length ~ ' viaggi passati.') if item.trip_items else '' }} L\'azione non è reversibile.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-ghost btn-sm" title="Elimina definitivamente">
+              <i data-lucide="trash-2" class="icon" style="color:var(--red);"></i>
+            </button>
+          </form>
+          {% endif %}
         </td>
       </tr>
       {% endfor %}

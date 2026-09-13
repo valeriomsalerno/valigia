@@ -242,6 +242,41 @@ function initOfflinePrepareButton() {
   button.addEventListener("click", () => prepareOfflineCache(button, statusEl));
 }
 
+/**
+ * Visualizzatore a schermo intero per le foto di oggetti/modelli —
+ * un'unica implementazione condivisa da Catalogo e schermata del
+ * viaggio (vedi il markup in base.html). Usa la delega degli eventi
+ * (un solo ascoltatore su `document`, non uno per ogni miniatura):
+ * funziona anche per miniature aggiunte DOPO il caricamento della
+ * pagina (es. dentro un pannello caricato via AJAX), non solo quelle
+ * già presenti all'avvio.
+ */
+function initPhotoZoom() {
+  const overlay = document.querySelector("[data-photo-zoom-overlay]");
+  if (!overlay) return;
+  const img = overlay.querySelector("[data-photo-zoom-img]");
+  const closeBtn = overlay.querySelector("[data-photo-zoom-close]");
+
+  const close = () => {
+    overlay.style.display = "none";
+    img.src = "";
+  };
+  closeBtn.addEventListener("click", close);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && overlay.style.display !== "none") close();
+  });
+
+  document.addEventListener("click", (e) => {
+    const trigger = e.target.closest("[data-photo-zoom-trigger]");
+    if (!trigger) return;
+    e.preventDefault();
+    img.src = trigger.currentSrc || trigger.src;
+    img.alt = trigger.alt || "";
+    overlay.style.display = "flex";
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   initIcons();
   initDropdowns();
@@ -249,4 +284,5 @@ document.addEventListener("DOMContentLoaded", () => {
   initTripSwitcher();
   initMobileNavToggle();
   initOfflinePrepareButton();
+  initPhotoZoom();
 });

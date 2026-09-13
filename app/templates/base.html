@@ -154,7 +154,38 @@
   </footer>
 </div>
 
+<!-- ============================================================
+     Visualizzatore a schermo intero per le foto di oggetti/modelli
+     (catalogo E viaggio usano lo stesso, vedi static/js/app.js::initPhotoZoom).
+     ============================================================ -->
+<div class="photo-zoom-overlay" data-photo-zoom-overlay style="display:none;">
+  <button type="button" class="photo-zoom-close" data-photo-zoom-close aria-label="Chiudi">
+    <i data-lucide="x" class="icon"></i>
+  </button>
+  <img data-photo-zoom-img alt="">
+</div>
+
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<script src="{{ url_for('static', filename='js/lucide-lab.js') }}?v={{ app_version }}"></script>
+<script>
+  // Icone "Lab" di Lucide (lucide.dev/icons/lab — es. shorts-boxer) NON
+  // fanno parte del pacchetto lucide principale caricato sopra: senza
+  // questo, data-lucide="shorts-boxer" non produrrebbe alcuna icona
+  // (bug reale segnalato: il campo "Icona" di un oggetto doveva poter
+  // usare anche queste, non solo il set principale). Si intercetta
+  // QUI, una volta sola, la funzione lucide.createIcons() stessa —
+  // invece di passare {icons: ...} a ciascuna delle tante chiamate già
+  // sparse nell'app (app.js, dashboard.js, ecc.) — così ogni chiamata
+  // esistente e futura a lucide.createIcons() (senza argomenti, come
+  // le usano già tutte) include automaticamente anche le icone lab.
+  if (window.lucide && window.LUCIDE_LAB_ICONS) {
+    const nativeCreateIcons = window.lucide.createIcons.bind(window.lucide);
+    window.lucide.createIcons = function (options) {
+      const icons = Object.assign({}, window.lucide.icons, window.LUCIDE_LAB_ICONS, (options && options.icons) || {});
+      return nativeCreateIcons(Object.assign({}, options, { icons }));
+    };
+  }
+</script>
 <script src="{{ url_for('static', filename='js/app.js') }}?v={{ app_version }}"></script>
 <script src="{{ url_for('static', filename='js/offline.js') }}?v={{ app_version }}"></script>
 <script>

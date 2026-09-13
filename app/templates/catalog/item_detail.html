@@ -1,165 +1,314 @@
 {% extends "base.html" %}
-{% block title %}{{ item.name }} — {{ app_name }}{% endblock %}
+{% from "_macros.html" import item_icon_or_emoji %}
+{% block title %}{{ 'Modifica "%s"' % item.name if item else 'Nuovo oggetto' }} — {{ app_name }}{% endblock %}
 {% block content %}
 
 <div class="page-header">
   <div>
-    <h1>{{ item.name }}</h1>
+    <h1>{{ 'Modifica "%s"' % item.name if item else 'Nuovo oggetto' }}</h1>
     <p>
+      {% if item %}
       <span class="color-dot" style="background:{{ item.category.color }};"></span>
       {{ item.category.name }}
       {% if item.archived %}<span class="status-pill status-pill--grigio" style="margin-left:8px;">Archiviato</span>{% endif %}
-    </p>
-  </div>
-  <div class="flex gap-sm">
-    {% if from_trip %}
-    <a href="{{ url_for('trips.workspace', trip_id=from_trip.id) }}" class="btn btn-ghost btn-sm">
-      <i data-lucide="arrow-left" class="icon"></i> Torna al viaggio
-    </a>
-    {% endif %}
-    <a href="{{ url_for('catalog.edit_item', item_id=item.id) }}" class="btn btn-ghost btn-sm">
-      <i data-lucide="pencil" class="icon"></i> Modifica
-    </a>
-    <a href="{{ url_for('catalog.items') }}" class="btn btn-ghost btn-sm">
-      <i data-lucide="package" class="icon"></i> Catalogo
-    </a>
-  </div>
-</div>
-
-<div class="two-col">
-  <div class="card">
-    <h3 style="font-size:15px; margin-bottom:14px;">Automazione quantità</h3>
-    <div class="stack-sm">
-      <div class="flex-between"><span class="text-sm text-muted">Regola</span>
-        <span style="font-weight:600;">
-          {% if item.quantity_rule == 'fixed' %}Fissa
-          {% elif item.quantity_rule == 'per_day' %}Per giorno
-          {% else %}Manuale{% endif %}
-        </span>
-      </div>
-      {% if item.quantity_rule == 'fixed' %}
-      <div class="flex-between"><span class="text-sm text-muted">Quantità</span><span style="font-weight:600;">{{ item.fixed_qty }}</span></div>
-      {% elif item.quantity_rule == 'per_day' %}
-      <div class="flex-between"><span class="text-sm text-muted">Extra oltre i giorni</span><span style="font-weight:600;">+{{ item.per_day_extra }}</span></div>
-      {% endif %}
-      <div class="flex-between"><span class="text-sm text-muted">Tipologia di valigia predefinita</span>
-        <span style="font-weight:600;">{{ {'cabina':'Cabina','stiva':'Stiva','zaino':'Zaino'}.get(item.default_luggage_type, '—') }}</span>
-      </div>
-      <div class="flex-between"><span class="text-sm text-muted">Peso di una unità</span>
-        <span style="font-weight:600;">{{ item.weight_grams | numero_it }}{{ ' g' if item.weight_grams }}</span>
-      </div>
-    </div>
-    {% if item.notes %}
-    <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--line);">
-      <p class="text-sm text-muted" style="margin-bottom:4px;">Note</p>
-      <p style="margin:0;">{{ item.notes }}</p>
-    </div>
-    {% endif %}
-  </div>
-
-  <div class="card">
-    <h3 style="font-size:15px; margin-bottom:14px;">Zona pericolosa</h3>
-    <p class="text-sm text-muted" style="margin-bottom:14px;">
-      {% if item.trip_items %}
-      Questo oggetto è presente in {{ item.trip_items | length }} viaggi: puoi archiviarlo per nasconderlo
-      dal catalogo attivo, ma non eliminarlo definitivamente finché resta collegato a dei viaggi.
       {% else %}
-      Questo oggetto non è ancora stato usato in nessun viaggio: puoi eliminarlo definitivamente.
+      Definisci come questo oggetto si comporta in tutti i tuoi viaggi.
       {% endif %}
     </p>
-    <div class="flex gap-sm" style="flex-wrap:wrap;">
-      <form method="post" action="{{ url_for('catalog.toggle_archive_item', item_id=item.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="btn btn-ghost btn-sm">
-          <i data-lucide="{{ 'rotate-ccw' if item.archived else 'archive' }}" class="icon"></i>
-          {{ 'Ripristina nel catalogo' if item.archived else 'Archivia oggetto' }}
-        </button>
-      </form>
-      <form method="post" action="{{ url_for('catalog.delete_item', item_id=item.id) }}"
-            onsubmit="return confirm('Eliminare definitivamente questo oggetto? L\'azione non è reversibile.');">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="btn btn-danger btn-sm" {{ 'disabled' if item.trip_items }}>
-          <i data-lucide="trash-2" class="icon"></i> Elimina definitivamente
-        </button>
-      </form>
+  </div>
+  <div style="display:flex; flex-direction:column; align-items:flex-end; gap:8px;">
+    <div class="flex gap-sm" style="flex-wrap:wrap; justify-content:flex-end;">
+      {% if item %}
+      {% if prev_item_id %}
+      <a href="{{ url_for('catalog.item_detail', item_id=prev_item_id, **nav_kwargs) }}" class="btn btn-ghost btn-sm" title="Oggetto precedente in questa categoria">
+        <i data-lucide="chevron-left" class="icon"></i> Precedente
+      </a>
+      {% endif %}
+      {% if next_item_id %}
+      <a href="{{ url_for('catalog.item_detail', item_id=next_item_id, **nav_kwargs) }}" class="btn btn-ghost btn-sm" title="Oggetto successivo in questa categoria">
+        Successivo <i data-lucide="chevron-right" class="icon"></i>
+      </a>
+      {% endif %}
+      {% endif %}
+      <a href="{{ return_to }}" class="btn btn-ghost btn-sm">
+        <i data-lucide="{{ 'arrow-left' if from_trip else 'package' }}" class="icon"></i>
+        {{ 'Torna al viaggio' if from_trip else 'Torna al catalogo' }}
+      </a>
+    </div>
+    <!-- Stessi pulsanti di salvataggio del fondo pagina (stesso modulo
+         a cui appartiene il form, referenziato da fuori tramite
+         l'attributo HTML "form" sui pulsanti qui sotto): un modulo
+         lungo altrimenti costringerebbe a scorrere fino in fondo solo
+         per salvare (richiesta esplicita). -->
+    <div class="flex gap-sm" style="flex-wrap:wrap; justify-content:flex-end;">
+      <button type="submit" form="item-edit-form" class="btn btn-primary btn-sm">Salva oggetto</button>
+      {% if item and next_item_id %}
+      <button type="submit" form="item-edit-form" name="save_and_next" value="1" class="btn btn-ghost btn-sm">
+        Salva e vai al successivo <i data-lucide="chevron-right" class="icon"></i>
+      </button>
+      {% endif %}
+      <a href="{{ return_to }}" class="btn btn-ghost btn-sm">Annulla</a>
     </div>
   </div>
 </div>
 
-<div class="card mt-lg">
-  <div class="flex-between" style="margin-bottom:14px;">
-    <h3 style="font-size:15px;">Modelli</h3>
-    <span class="text-sm text-muted">Facoltativo — utile per oggetti con varianti diverse (es. camicie, pantaloni)</span>
+<div class="{{ 'item-page-layout' if item else '' }}">
+  <div class="card" style="max-width:560px;">
+    {% if item %}
+    <div class="item-photo-widget" style="margin-bottom:20px;">
+      <div class="item-photo-preview {{ 'has-photo' if item.has_photo }}">
+        {% if item.has_photo %}
+        <img src="{{ url_for('catalog.item_photo_file', item_id=item.id) }}" alt="Foto di {{ item.name }}" data-photo-zoom-trigger>
+        {% elif item.icon %}
+        {{ item_icon_or_emoji(item.icon) }}
+        {% else %}
+        <i data-lucide="image" class="icon"></i>
+        {% endif %}
+      </div>
+      <div class="item-photo-actions">
+        <form method="post" action="{{ url_for('catalog.upload_item_photo', item_id=item.id) }}" enctype="multipart/form-data" data-photo-upload-form>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="file" name="photo_file" accept="image/*" id="item-photo-input" style="display:none;" onchange="this.form.requestSubmit()">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('item-photo-input').click()">
+            <i data-lucide="camera" class="icon"></i> {{ 'Cambia foto' if item.has_photo else 'Aggiungi una foto' }}
+          </button>
+        </form>
+        {% if item.has_photo %}
+        <form method="post" action="{{ url_for('catalog.remove_item_photo', item_id=item.id) }}" onsubmit="return confirm('Rimuovere la foto di questo oggetto?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-ghost btn-sm" style="color:var(--red);"><i data-lucide="trash-2" class="icon"></i></button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+    <form method="post" novalidate id="item-edit-form" autocomplete="off">
+      {{ form.hidden_tag() }}
+      {% for key, value in nav_kwargs.items() %}
+      <input type="hidden" name="{{ key }}" value="{{ value }}">
+      {% endfor %}
+      <div class="form-grid">
+        <div class="form-row">
+          {{ form.name.label }}
+          {{ form.name(autofocus=true, placeholder="Es. Passaporto", autocomplete="off", autocorrect="off", autocapitalize="off", spellcheck="false") }}
+          {% for e in form.name.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+        </div>
+
+        <div class="form-row">
+          {{ form.icon.label }}
+          {{ form.icon(placeholder="Es. shirt", autocomplete="off") }}
+          <p class="hint">
+            Usata al posto della foto quando non ne carichi una. Nome icona da
+            <a href="https://lucide.dev/icons" target="_blank" rel="noopener">lucide.dev</a>
+            (incluse quelle "Lab") oppure un'emoji digitata dalla tastiera.
+          </p>
+        </div>
+
+        <div class="form-row">
+          {{ form.category_id.label }}
+          {{ form.category_id(autocomplete="off") }}
+        </div>
+
+        <div class="form-row">
+          {{ form.quantity_rule.label }}
+          {{ form.quantity_rule(id="quantity_rule", autocomplete="off") }}
+          <p class="hint">Determina come viene proposta la quantità quando l'oggetto compare in un nuovo viaggio. Puoi comunque modificarla a mano in ogni momento dalla dashboard.</p>
+        </div>
+
+        <div class="form-row rule-field" data-rule="fixed">
+          {{ form.fixed_qty.label }}
+          {{ form.fixed_qty(autocomplete="off") }}
+          <p class="hint">Es. iPhone, patente: sempre lo stesso numero.</p>
+        </div>
+
+        <div class="form-row rule-field" data-rule="per_day">
+          {{ form.per_day_extra.label }}
+          {{ form.per_day_extra(autocomplete="off") }}
+          <p class="hint">Es. calzini/mutande: giorni di viaggio + questo numero di scorta.</p>
+        </div>
+
+        <div class="form-row">
+          {{ form.default_luggage_type.label }}
+          {{ form.default_luggage_type(autocomplete="off") }}
+          <p class="hint">Facoltativo, per qualunque regola: se impostata, riceverai un avviso quando questo oggetto finisce da un'altra parte — un'altra valigia, oppure "Indossa" se invece lo metti in valigia (non sceglie né pre-compila nulla al posto tuo).</p>
+        </div>
+
+        <div class="two-col">
+          <div class="form-row">
+            {{ form.weight_grams.label }}
+            {{ form.weight_grams(placeholder="Es. 350,5", autocomplete="off") }}
+            <p class="hint">Peso di UNA unità, in grammi. Virgola per i decimali, punto per le migliaia (es. 1.250,5). Vale solo se l'oggetto NON ha modelli (vedi {{ 'la sezione Modelli qui accanto' if item else 'sotto' }}).</p>
+            {% for e in form.weight_grams.errors %}<p class="form-errors">{{ e }}</p>{% endfor %}
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top:-4px;">
+          {% if item %}
+          <p class="hint">Se questo oggetto esiste in più varianti diverse tra loro (es. camicie di taglio diverso, ciascuna col proprio peso), gestiscile nella sezione "Modelli" di questa pagina invece di un peso unico qui sopra: il peso di ciascun modello prende il sopravvento su quello impostato in questo modulo.</p>
+          {% else %}
+          <p class="hint">Se questo oggetto esisterà in più varianti diverse tra loro (es. camicie di taglio diverso), potrai gestirle come "modelli" (ciascuna col proprio peso e la propria foto) subito dopo aver salvato — l'oggetto ti riporta qui.</p>
+          {% endif %}
+        </div>
+
+        <div class="form-row">
+          {{ form.notes.label }}
+          {{ form.notes(rows=3, placeholder="Note generali, valide per tutti i viaggi…", autocomplete="off") }}
+        </div>
+      </div>
+
+      <div class="flex gap-sm" style="margin-top:20px; flex-wrap:wrap;">
+        {{ form.submit(class_="btn btn-primary") }}
+        {% if item and next_item_id %}
+        <button type="submit" name="save_and_next" value="1" class="btn btn-ghost">
+          Salva e vai al successivo <i data-lucide="chevron-right" class="icon"></i>
+        </button>
+        {% endif %}
+        <a href="{{ return_to }}" class="btn btn-ghost">Annulla</a>
+      </div>
+    </form>
   </div>
-  <p class="text-sm text-muted" style="margin-top:-8px; margin-bottom:14px;">
-    Se definisci almeno un modello, preparare questo oggetto per un viaggio chiederà quanti ne porti di CIASCUN modello (invece del generico conteggio per valigia), usando il peso specifico di ognuno.
-  </p>
 
-  {% if item.variants %}
-  <table class="simple-table responsive-stack" style="margin-bottom:16px;">
-    <thead><tr><th>Modello</th><th>Peso</th><th>Posseduti</th><th></th></tr></thead>
-    <tbody>
-      {% for v in item.variants %}
-      <tr>
-        <td style="font-weight:600;">{{ v.description }}</td>
-        <td class="text-muted" data-label="Peso">{{ v.weight_grams | numero_it }}{{ ' g' if v.weight_grams }}</td>
-        <td class="text-muted" data-label="Posseduti">{{ v.owned_qty }}</td>
-        <td style="text-align:right; white-space:nowrap;">
-          <a href="{{ url_for('catalog.edit_variant', item_id=item.id, variant_id=v.id) }}" class="btn btn-ghost btn-sm"><i data-lucide="pencil" class="icon"></i></a>
-          <form method="post" action="{{ url_for('catalog.delete_variant', item_id=item.id, variant_id=v.id) }}" style="display:inline;"
-                onsubmit="return confirm('Eliminare il modello \'{{ v.description }}\'? Le quantità già specificate per i viaggi andranno perse.');">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-ghost btn-sm"><i data-lucide="trash-2" class="icon"></i></button>
-          </form>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  {% if item %}
+  <div class="item-page-details">
+    <div class="card">
+      <h3 style="font-size:15px; margin-bottom:14px;">Zona pericolosa</h3>
+      <p class="text-sm text-muted" style="margin-bottom:14px;">
+        {% if item.trip_items and not item.archived %}
+        Questo oggetto è presente in {{ item.trip_items | length }} viaggi: archivialo per poterlo
+        eliminare definitivamente.
+        {% elif item.trip_items %}
+        Questo oggetto è ancora presente in {{ item.trip_items | length }} viaggi passati: eliminarlo
+        definitivamente lo rimuove anche da quelli, in modo irreversibile.
+        {% else %}
+        Questo oggetto non è collegato a nessun viaggio: puoi eliminarlo definitivamente.
+        {% endif %}
+      </p>
+      <div class="flex gap-sm" style="flex-wrap:wrap;">
+        <form method="post" action="{{ url_for('catalog.toggle_archive_item', item_id=item.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-ghost btn-sm">
+            <i data-lucide="{{ 'rotate-ccw' if item.archived else 'archive' }}" class="icon"></i>
+            {{ 'Ripristina nel catalogo' if item.archived else 'Archivia oggetto' }}
+          </button>
+        </form>
+        <form method="post" action="{{ url_for('catalog.delete_item', item_id=item.id) }}"
+              onsubmit="return confirm('Eliminare definitivamente questo oggetto?{{ (' Verrà rimosso anche da ' ~ item.trip_items|length ~ ' viaggi passati.') if item.trip_items else '' }} L\'azione non è reversibile.');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-danger btn-sm" {{ 'disabled' if item.trip_items and not item.archived }}>
+            <i data-lucide="trash-2" class="icon"></i> Elimina definitivamente
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card mt-lg">
+      <div class="flex-between" style="margin-bottom:14px; gap:12px; flex-wrap:wrap;">
+        <h3 style="font-size:15px;">Modelli</h3>
+        <span class="text-sm text-muted">Facoltativo — utile per oggetti con varianti diverse (es. camicie, pantaloni)</span>
+      </div>
+      <p class="text-sm text-muted" style="margin-top:-8px; margin-bottom:14px;">
+        Se definisci almeno un modello, preparare questo oggetto per un viaggio chiederà quanti ne porti di CIASCUN modello (invece del generico conteggio per valigia), usando il peso specifico di ognuno.
+      </p>
+
+      {% if item.variants %}
+      <table class="simple-table responsive-stack" style="margin-bottom:16px;">
+        <thead><tr><th style="width:50px;"></th><th>Modello</th><th>Peso</th><th>Posseduti</th><th></th></tr></thead>
+        <tbody>
+          {% for v in item.variants %}
+          <tr>
+            <td data-label="Foto">
+              <div class="item-photo-thumb">
+                {% if v.has_photo %}
+                <img src="{{ url_for('catalog.variant_photo_file', item_id=item.id, variant_id=v.id) }}" alt="Foto di {{ v.description }}" data-photo-zoom-trigger>
+                {% else %}
+                <i data-lucide="image" class="icon"></i>
+                {% endif %}
+              </div>
+            </td>
+            <td style="font-weight:600;">{{ v.description }}</td>
+            <td class="text-muted" data-label="Peso">{{ v.weight_grams | numero_it }}{{ ' g' if v.weight_grams }}</td>
+            <td class="text-muted" data-label="Posseduti">{{ v.owned_qty }}</td>
+            <td style="text-align:right; white-space:nowrap;">
+              <form method="post" action="{{ url_for('catalog.upload_variant_photo', item_id=item.id, variant_id=v.id) }}" enctype="multipart/form-data" style="display:inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="file" name="photo_file" accept="image/*" id="variant-photo-input-{{ v.id }}" style="display:none;" onchange="this.form.requestSubmit()">
+                <button type="button" class="btn btn-ghost btn-sm" title="{{ 'Cambia foto' if v.has_photo else 'Aggiungi foto' }}" onclick="document.getElementById('variant-photo-input-{{ v.id }}').click()">
+                  <i data-lucide="camera" class="icon"></i>
+                </button>
+              </form>
+              <a href="{{ url_for('catalog.edit_variant', item_id=item.id, variant_id=v.id, **nav_kwargs) }}" class="btn btn-ghost btn-sm"><i data-lucide="pencil" class="icon"></i></a>
+              <form method="post" action="{{ url_for('catalog.delete_variant', item_id=item.id, variant_id=v.id) }}" style="display:inline;"
+                    onsubmit="return confirm('Eliminare il modello \'{{ v.description }}\'? Le quantità già specificate per i viaggi andranno perse.');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-ghost btn-sm"><i data-lucide="trash-2" class="icon"></i></button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+
+      <form method="post" action="{{ url_for('catalog.add_variant', item_id=item.id) }}" class="flex gap-sm" style="flex-wrap:wrap; align-items:flex-end;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-row" style="flex:2; min-width:180px; margin:0;">
+          {{ variant_form.description.label }}
+          {{ variant_form.description(placeholder="Es. Camicia bianca elegante") }}
+        </div>
+        <div class="form-row" style="flex:1; min-width:120px; margin:0;">
+          {{ variant_form.weight_grams.label }}
+          {{ variant_form.weight_grams() }}
+        </div>
+        <div class="form-row" style="flex:1; min-width:100px; margin:0;">
+          {{ variant_form.owned_qty.label }}
+          {{ variant_form.owned_qty() }}
+        </div>
+        <button type="submit" class="btn btn-brass btn-sm"><i data-lucide="plus" class="icon"></i> Aggiungi modello</button>
+      </form>
+    </div>
+
+    <div class="card mt-lg" style="padding:0;">
+      <div style="padding:18px 22px 0;"><h3 style="font-size:15px;">Storico nei viaggi</h3></div>
+      {% if history %}
+      <table class="simple-table responsive-stack" style="margin-top:8px;">
+        <thead>
+          <tr><th>Viaggio</th><th>Periodo</th><th>Stato</th><th>Quantità</th></tr>
+        </thead>
+        <tbody>
+          {% for h in history %}
+          <tr>
+            <td>{{ h.trip.destination }}</td>
+            <td class="text-muted" data-label="Periodo">{{ h.trip.start_date.strftime('%d/%m/%Y') }}<br>{{ h.trip.end_date.strftime('%d/%m/%Y') }}</td>
+            <td data-label="Stato">
+              <span class="status-pill status-pill--{{ 'verde' if h.status == 'conservato' else ('rosso' if h.status == 'da_comprare' else ('giallo' if h.status == 'da_preparare' else 'grigio')) }}">
+                {{ h.status_label }}
+              </span>
+            </td>
+            <td data-label="Quantità">{{ h.total_qty }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state"><p>Non ancora usato in nessun viaggio.</p></div>
+      {% endif %}
+    </div>
+  </div>
   {% endif %}
-
-  <form method="post" action="{{ url_for('catalog.add_variant', item_id=item.id) }}" class="flex gap-sm" style="flex-wrap:wrap; align-items:flex-end;">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div class="form-row" style="flex:2; min-width:180px; margin:0;">
-      {{ variant_form.description.label }}
-      {{ variant_form.description(placeholder="Es. Camicia bianca elegante") }}
-    </div>
-    <div class="form-row" style="flex:1; min-width:120px; margin:0;">
-      {{ variant_form.weight_grams.label }}
-      {{ variant_form.weight_grams() }}
-    </div>
-    <div class="form-row" style="flex:1; min-width:100px; margin:0;">
-      {{ variant_form.owned_qty.label }}
-      {{ variant_form.owned_qty() }}
-    </div>
-    <button type="submit" class="btn btn-brass btn-sm"><i data-lucide="plus" class="icon"></i> Aggiungi modello</button>
-  </form>
 </div>
+{% endblock %}
 
-<div class="card mt-lg" style="padding:0;">
-  <div style="padding:18px 22px 0;"><h3 style="font-size:15px;">Storico nei viaggi</h3></div>
-  {% if history %}
-  <table class="simple-table responsive-stack" style="margin-top:8px;">
-    <thead>
-      <tr><th>Viaggio</th><th>Periodo</th><th>Stato</th><th style="text-align:right;">Quantità</th></tr>
-    </thead>
-    <tbody>
-      {% for h in history %}
-      <tr>
-        <td>{{ h.trip.destination }}</td>
-        <td class="text-muted" data-label="Periodo">{{ h.trip.start_date | data_it }} — {{ h.trip.end_date | data_it }}</td>
-        <td data-label="Stato">
-          <span class="status-pill status-pill--{{ 'verde' if h.status == 'conservato' else ('rosso' if h.status == 'da_comprare' else ('giallo' if h.status == 'da_preparare' else 'grigio')) }}">
-            {{ h.status_label }}
-          </span>
-        </td>
-        <td style="text-align:right;">{{ h.total_qty }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty-state"><p>Non ancora usato in nessun viaggio.</p></div>
-  {% endif %}
-</div>
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}?v={{ app_version }}"></script>
+<script>
+  // Mostra solo il campo pertinente alla regola di quantità selezionata.
+  function syncRuleFields() {
+    const rule = document.getElementById("quantity_rule").value;
+    document.querySelectorAll(".rule-field").forEach((el) => {
+      el.style.display = el.dataset.rule === rule ? "flex" : "none";
+    });
+  }
+  document.getElementById("quantity_rule").addEventListener("change", syncRuleFields);
+  document.addEventListener("DOMContentLoaded", syncRuleFields);
+</script>
 {% endblock %}

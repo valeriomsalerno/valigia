@@ -437,6 +437,46 @@ function applyShoppingSearchFilter() {
   });
 }
 
+/** Ricerca client-side per il pannello Valigia del viaggio — in tempo
+    reale mentre si digita, esattamente come la ricerca nella lista
+    della spesa: nessun giro di andata e ritorno al server (bug reale
+    segnalato: prima richiedeva Invio/un ricaricamento della pagina
+    per vedere il risultato). Filtra per nome sulle righe già presenti
+    nella pagina; se la ricerca trova corrispondenze in una categoria
+    diversa da quella attualmente selezionata, passa automaticamente
+    alla scheda "Tutti" per non nascondere risultati validi. */
+function applyItemSearchFilter() {
+  const input = document.querySelector("[data-item-search]");
+  if (!input) return;
+  const query = input.value.trim().toLowerCase();
+
+  document.querySelectorAll(".item-list .item-row").forEach((row) => {
+    const name = (row.dataset.itemName || "").toLowerCase();
+    row.classList.toggle("is-hidden-by-search", query !== "" && !name.includes(query));
+  });
+
+  document.querySelectorAll(".category-panel").forEach((panel) => {
+    const hasVisible = Array.from(panel.querySelectorAll(".item-row")).some(
+      (row) => !row.classList.contains("is-hidden-by-search")
+    );
+    panel.classList.toggle("is-hidden-by-search", query !== "" && !hasVisible);
+  });
+
+  if (query !== "") {
+    const tuttiBtn = document.querySelector('[data-category-tab="all"]');
+    if (tuttiBtn && !tuttiBtn.classList.contains("active")) tuttiBtn.click();
+  }
+}
+
+function initItemSearch() {
+  const input = document.querySelector("[data-item-search]");
+  if (!input) return;
+  input.addEventListener("input", applyItemSearchFilter);
+  // Applica subito un eventuale valore già presente (es. tornando da
+  // una pill di stato che preserva il testo cercato nell'URL).
+  applyItemSearchFilter();
+}
+
 function initShoppingSearch() {
   const input = document.querySelector("[data-shopping-search]");
   if (!input) return;
@@ -682,11 +722,33 @@ function initVariantModal() {
 
     const info = document.createElement("div");
     info.className = "variant-modal-row-info";
+
+    // Miniatura del modello, se ne ha una caricata — stesso pattern di
+    // `.item-photo-thumb` già usato per l'oggetto (catalogo, workspace):
+    // stessa classe, stesso overlay di zoom (delega eventi in app.js su
+    // [data-photo-zoom-trigger]), niente di nuovo da agganciare qui.
+    // Prima di questa correzione l'anteprima semplicemente non compariva
+    // MAI in questa finestra, perché `v` non portava alcuna informazione
+    // sulla foto (bug reale segnalato: zoom assente per gli oggetti coi
+    // modelli, funzionante solo per gli oggetti semplici).
+    if (v.has_photo && v.photo_url) {
+      const thumb = document.createElement("div");
+      thumb.className = "item-photo-thumb";
+      const img = document.createElement("img");
+      img.src = v.photo_url;
+      img.alt = `Foto di ${v.description}`;
+      img.setAttribute("data-photo-zoom-trigger", "");
+      thumb.appendChild(img);
+      info.appendChild(thumb);
+    }
+
+    const text = document.createElement("div");
     const strong = document.createElement("strong");
     strong.textContent = v.description;
     const span = document.createElement("span");
-    info.appendChild(strong);
-    info.appendChild(span);
+    text.appendChild(strong);
+    text.appendChild(span);
+    info.appendChild(text);
 
     const stepper = document.createElement("div");
     stepper.className = "qty-stepper";
@@ -1128,7 +1190,83 @@ function initLiveStatsPolling() {
   });
 }
 
+/**
+ * Ripristina la posizione di scroll del workspace di un viaggio dopo
+ * essere tornati dalla pagina di impostazioni di un oggetto (o di una
+ * valigia/condivisione/modifica viaggio) tramite "Torna al viaggio":
+ * quei link sono una navigazione a pagina intera (non l'overlay del
+ * pannello di dettaglio), quindi il workspace si ricarica sempre da
+ * capo — SENZA questo, la pagina riparte ogni volta dall'inizio,
+ * anche se prima si era scrollato molto più in basso (bug reale
+ * segnalato).
+ *
+ * Salva lo scroll in sessionStorage (per-tab, sufficiente: non deve
+ * sopravvivere alla chiusura della scheda) subito PRIMA di lasciare la
+ * pagina, con chiave per-viaggio; lo ripristina — una tantum, poi lo
+ * rimuove — al successivo caricamento dello STESSO viaggio. Se non
+ * c'è nulla di salvato (prima apertura, arrivo da un altro punto
+ * dell'app), il comportamento resta quello di sempre: scroll in cima.
+ */
+function initWorkspaceScrollRestore() {
+  const marker = document.querySelector("[data-main-tabs]");
+  if (!marker) return;
+  const tripId = marker.dataset.tripId;
+  if (!tripId) return;
+  const key = `valigia-scroll-trip-${tripId}`;
+
+  const saved = sessionStorage.getItem(key);
+  if (saved !== null) {
+    sessionStorage.removeItem(key);
+    const y = parseInt(saved, 10);
+    if (!Number.isNaN(y)) {
+      // Un frame dopo il caricamento, per dare tempo al layout (icone
+      // Lucide, immagini) di assestarsi prima di calcolare lo scroll.
+      requestAnimationFrame(() => window.scrollTo(0, y));
+    }
+  }
+
+  window.addEventListener("beforeunload", () => {
+    sessionStorage.setItem(key, String(window.scrollY));
+  });
+}
+
+/**
+ * Versione GENERICA del meccanismo qui sopra, per qualunque altra
+ * coppia "lista -> pagina di un elemento -> stessa lista" — tipicamente
+ * il catalogo oggetti: "Modifica" un oggetto e poi "Salva oggetto"
+ * deve riportare alla stessa altezza di scorrimento della lista da cui
+ * si era partiti (bug reale segnalato), non solo al workspace di un
+ * viaggio (che ha il proprio meccanismo qui sopra, INVARIATO: usa una
+ * chiave per-viaggio invece che per-URL, perché "Torna al viaggio"
+ * ignora deliberatamente eventuali filtri nell'URL di partenza — qui
+ * invece la chiave è l'URL completo, perché il server (vedi
+ * catalog/routes.py::_resolve_navigation_context) fa sempre tornare
+ * l'utente ESATTAMENTE all'URL di partenza, querystring inclusa).
+ */
+function initGenericScrollRestore() {
+  // Il workspace di un viaggio ha già il proprio meccanismo qui sopra,
+  // più preciso per quel caso specifico: non serve raddoppiarlo qui.
+  if (document.querySelector("[data-main-tabs]")) return;
+
+  const key = `valigia-scroll-url-${location.pathname}${location.search}`;
+
+  const saved = sessionStorage.getItem(key);
+  if (saved !== null) {
+    sessionStorage.removeItem(key);
+    const y = parseInt(saved, 10);
+    if (!Number.isNaN(y)) {
+      requestAnimationFrame(() => window.scrollTo(0, y));
+    }
+  }
+
+  window.addEventListener("beforeunload", () => {
+    sessionStorage.setItem(key, String(window.scrollY));
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+  initWorkspaceScrollRestore();
+  initGenericScrollRestore();
   initQuantitySteppers();
   initVariantModal();
   initTargetStepper();
@@ -1139,10 +1277,12 @@ document.addEventListener("DOMContentLoaded", () => {
   initCategoryTabs();
   initShoppingPanelActions();
   initShoppingSearch();
+  initItemSearch();
   initHideCompletedToggle();
   initLiveStatsPolling();
   initItemReordering();
   initCatalogItemReordering();
+  initCategoryReordering();
   initColumnResize();
   initColumnEditToggle();
   initPublicToggles();
@@ -1169,6 +1309,26 @@ function initCatalogItemReordering() {
     apiFetch("/api/riordina-oggetti", {
       method: "POST",
       body: JSON.stringify({ item_ids: orderedItemIds }),
+    }).then((payload) => {
+      if (!payload.ok) showToast(payload.error || "Riordino non salvato: riprova.");
+    });
+  });
+}
+
+/**
+ * Riordina le categorie del catalogo (Category.sort_order) trascinando
+ * le righe della tabella in "Categorie" — un unico elenco piatto (a
+ * differenza degli oggetti, non ci sono sotto-gruppi). Rispettato sia
+ * dal Catalogo sia dal workspace di un viaggio, che ordinano già
+ * entrambi per questo stesso campo (bug reale segnalato: non c'era
+ * alcun modo di riordinarle manualmente).
+ */
+function initCategoryReordering() {
+  initDragReorder("[data-reorderable-categories]", "tr", ".drag-handle", (rows) => {
+    const orderedCategoryIds = rows.map((row) => Number(row.dataset.categoryId));
+    apiFetch("/api/riordina-categorie", {
+      method: "POST",
+      body: JSON.stringify({ category_ids: orderedCategoryIds }),
     }).then((payload) => {
       if (!payload.ok) showToast(payload.error || "Riordino non salvato: riprova.");
     });
